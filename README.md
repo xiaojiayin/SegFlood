@@ -153,3 +153,8 @@ All inference entrypoints under `scripts/infer/*.py` run via `Trainer.predict` w
 - `predictions/` (GeoTIFF and/or PNG depending on dataset)
 - `overall_metrics.xlsx`
 - `detailed_samples.xlsx`
+
+## Acknowledgements
+
+- This repo is built upon and refactors components from the `timm` project: <https://github.com/huggingface/pytorch-image-models/>.
+- The training pipeline structure and Hydra configuration patterns were adapted from `lightning-hydra-template`: <https://github.com/ashleve/lightning-hydra-template/>.
