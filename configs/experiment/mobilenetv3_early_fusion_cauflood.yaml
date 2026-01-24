@@ -1,0 +1,58 @@
+﻿# @package _global_
+
+
+# Experiment overrides (Hydra).
+
+
+defaults:
+  - override /data: cau_flood
+  - override /model: efficientnetb4_mobilenetv3
+  - override /callbacks: default
+  - override /logger: tensorboard
+  - override /trainer: gpu
+
+tags: ["early_fusion", "baseline", "mobilenetv3", "cauflood", "single_encoder"]
+seed: 42
+experiment_name: "mobilenetv3_early_fusion_cauflood"
+
+data:
+  modal_type: "dual"
+  output_image_key: true
+  batch_size: 128
+  num_workers: 8
+
+trainer:
+  max_epochs: 100
+  check_val_every_n_epoch: 1
+  precision: "bf16-mixed"
+
+logger:
+  tensorboard:
+    save_dir: "${paths.log_dir}/tensorboard"
+    name: "${experiment_name}"
+    version: null
+
+model:
+  encoder:
+    optical_model_name: "mobilenetv3_large_100"
+    optical_pretrained: false
+    optical_channels: 5
+    sar_model_name: null
+    sar_pretrained: false
+    sar_channels: 0
+    drop_path_rate: 0.1
+
+  fusion:
+    fusion_type: "concat"
+
+  decoder:
+    dropout: 0.0
+    up_mode: "bilinear"
+
+  loss_fn:
+    _target_: torch.nn.CrossEntropyLoss
+    ignore_index: -1
+  learning_rate: 5e-4
+  weight_decay: 1e-4
+
+

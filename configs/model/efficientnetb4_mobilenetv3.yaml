@@ -1,0 +1,48 @@
+# Hybrid backbone config: EfficientNet-B4 (optical) + MobileNetV3 (SAR).
+
+_target_: src.models.lightning_module.MultiModalSegmentationModule
+
+# Encoder (dual-stream)
+encoder:
+  _target_: src.models.encoders.DualStreamEncoder
+  model_name: "resnet50"  # placeholder (overridden by per-stream backbones)
+  
+  # Optical backbone (EfficientNet)
+  optical_model_name: "efficientnet_b4"     
+  
+  # SAR backbone (MobileNet)
+  sar_model_name: "mobilenetv3_large_100"         
+
+  # Channels are taken from the selected `data` config.
+  optical_channels: ${data.optical_channels}
+  sar_channels: ${data.sar_channels}
+  
+  # Pretraining policy
+  optical_pretrained: true
+  sar_pretrained: false
+
+# Fusion
+fusion:
+  _target_: src.models.fusion.FeatureFusion
+  fusion_type: "concat"
+
+# Decoder
+decoder:
+  _target_: src.models.decoders.UNetDecoder
+  num_classes: 2
+
+# Loss
+loss_fn:
+  _target_: torch.nn.CrossEntropyLoss
+  ignore_index: -1
+
+# Optimizer hparams (can be overridden by experiments)
+learning_rate: 5e-4
+weight_decay: 1e-4
+num_classes: 2
+
+# LR scheduler (optional)
+scheduler_config:
+  _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+  T_max: 50
+  eta_min: 1e-6

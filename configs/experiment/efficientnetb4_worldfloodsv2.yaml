@@ -1,0 +1,54 @@
+﻿# @package _global_
+
+
+# Experiment overrides (Hydra).
+
+
+defaults:
+  - override /data: worldfloodsv2
+  - override /model: efficientnetb4_mobilenetv3
+  - override /callbacks: default
+  - override /logger: tensorboard
+  - override /trainer: gpu
+
+tags: ["single_encoder", "efficientnet_b4", "worldfloodsv2", "optical"]
+seed: 42
+experiment_name: "efficientnetb4_worldfloodsv2"
+
+data:
+  batch_size: 128
+  num_workers: 8
+
+trainer:
+  max_epochs: 50
+  check_val_every_n_epoch: 1
+  precision: "bf16-mixed"
+
+logger:
+  tensorboard:
+    save_dir: "${paths.log_dir}/tensorboard"
+    name: "${experiment_name}"
+    version: null
+
+model:
+  encoder:
+    optical_channels: ${data.optical_channels}
+    sar_channels: ${data.sar_channels}
+    optical_model_name: "efficientnet_b4"
+    drop_path_rate: 0.1
+
+  decoder:
+    dropout: 0.1
+
+  fusion:
+    fusion_type: concat
+
+  loss_fn:
+    _target_: torch.nn.CrossEntropyLoss
+    ignore_index: -1
+
+  learning_rate: 5e-4
+  weight_decay: 1e-4
+  num_classes: 2
+
+

@@ -1,0 +1,61 @@
+﻿# @package _global_
+
+
+# Experiment overrides (Hydra).
+
+
+defaults:
+  - override /data: kurosiwo
+  - override /model: sam2_sam2
+  - override /callbacks: default
+  - override /logger: tensorboard
+  - override /trainer: gpu
+
+tags: ["sam2", "kurosiwo", "sar"]
+seed: 42
+experiment_name: "sam2_sam2_kurosiwo"
+
+data:
+  batch_size: 128
+  num_workers: 8
+
+trainer:
+  max_epochs: 50
+  check_val_every_n_epoch: 1
+  precision: "bf16-mixed"
+
+logger:
+  tensorboard:
+    save_dir: "${paths.log_dir}/tensorboard"
+    name: "${experiment_name}"
+    version: null
+
+model:
+  encoder:
+    optical_channels: ${data.optical_channels}
+    sar_channels: ${data.sar_channels}
+    drop_path_rate: 0.3
+
+  loss_fn:
+    _target_: segmentation_models_pytorch.losses.FocalLoss
+    mode: "multiclass"
+    alpha: [0.067, 0.933]
+    gamma: 2.0
+    reduction: "mean"
+    ignore_index: -1
+    _convert_: all
+
+  aux_loss_fn:
+    _target_: segmentation_models_pytorch.losses.DiceLoss
+    mode: "multiclass"
+    from_logits: true
+    smooth: 1e-6
+    ignore_index: -1
+    _convert_: all
+
+  aux_loss_weight: 0.3
+  learning_rate: 5e-4
+  weight_decay: 1e-4
+
+  decoder:
+    dropout: 0.1

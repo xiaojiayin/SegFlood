@@ -1,0 +1,57 @@
+# SAM2-Hiera dual-stream config (optical + SAR).
+
+_target_: src.models.lightning_module.MultiModalSegmentationModule
+
+# Encoder (dual-stream)
+encoder:
+  _target_: src.models.encoders.DualStreamEncoder
+  model_name: "resnet50"  # placeholder (overridden by per-stream backbones)
+  
+  # Optical backbone
+  optical_model_name: "sam2_hiera_base_plus"
+
+  # SAR backbone
+  sar_model_name: "sam2_hiera_small"
+
+  # Channels are taken from the selected `data` config.
+  optical_channels: ${data.optical_channels}
+  sar_channels: ${data.sar_channels}
+
+  # Pretraining policy
+  optical_pretrained: true
+  sar_pretrained: false
+
+# Fusion
+fusion:
+  _target_: src.models.fusion.FeatureFusion
+  fusion_type: "xattn"     # options: concat|add|gated|se|cbam|xattn
+  xattn_apply_levels: [-1,-2]
+  xattn_reduction: 8
+  xattn_gamma_init: 0.0
+  # Keep strategy-specific params for quick switching.
+  se_apply_levels: [-1,-2,-3]
+  cbam_apply_levels: [-1,-2]
+  projection_norm: gn
+
+# Decoder
+decoder:
+  _target_: src.models.decoders.UNetDecoder
+  num_classes: 2
+
+# Loss
+loss_fn:
+  _target_: torch.nn.CrossEntropyLoss
+  ignore_index: -1
+
+# Optimizer hparams (can be overridden by experiments)
+learning_rate: 5e-4
+weight_decay: 1e-4
+num_classes: 2
+
+# LR scheduler (optional)
+scheduler_config:
+  _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+  T_max: 50
+  eta_min: 1e-6
+
+

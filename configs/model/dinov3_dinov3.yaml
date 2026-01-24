@@ -1,0 +1,56 @@
+# DINOv3 dual-stream config (timm ViT backbones).
+# Change `optical_model_name` / `sar_model_name` to switch variants (e.g. vit_small/base/large_patch16_dinov3).
+
+_target_: src.models.lightning_module.MultiModalSegmentationModule
+
+# Encoder (dual-stream). Input channels are taken from the selected `data` config.
+encoder:
+  _target_: src.models.encoders.DualStreamEncoder
+  optical_model_name: "vit_base_patch16_dinov3"
+  sar_model_name: "vit_small_patch16_dinov3"
+
+  optical_channels: ${data.optical_channels}
+  sar_channels: ${data.sar_channels}
+
+  # Pretraining / regularization
+  optical_pretrained: true
+  sar_pretrained: true
+  drop_path_rate: 0.2
+  # Optional shallow CNN features for single-scale ViT backbones.
+  shallow_enabled: true
+  shallow_norm: gn
+  shallow_c2: 64
+  shallow_c4: 128
+  shallow_c8: 256
+
+# Fusion (cross-modal attention by default).
+fusion:
+  _target_: src.models.fusion.FeatureFusion
+  fusion_type: "xattn"
+  xattn_apply_levels: [-1, -2]
+  xattn_reduction: 8
+  xattn_gamma_init: 0.0
+  projection_norm: gn
+
+# Decoder
+decoder:
+  _target_: src.models.decoders.UNetDecoder
+  num_classes: ${model.num_classes}
+
+# Loss (can be overridden by experiments)
+loss_fn:
+  _target_: torch.nn.CrossEntropyLoss
+  ignore_index: -1
+
+# Optimizer hparams (can be overridden by experiments)
+learning_rate: 5e-4
+weight_decay: 1e-4
+num_classes: 2
+
+# LR scheduler (optional)
+scheduler_config:
+  _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+  T_max: 50
+  eta_min: 1e-6
+
+

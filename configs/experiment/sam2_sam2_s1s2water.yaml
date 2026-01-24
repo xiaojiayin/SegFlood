@@ -1,0 +1,84 @@
+﻿# @package _global_
+
+
+# Experiment overrides (Hydra).
+
+
+defaults:
+  - override /data: s1s2_water
+  - override /model: sam2_sam2
+  - override /callbacks: default
+  - override /logger: tensorboard
+  - override /trainer: gpu
+
+tags: ["dual_modal", "sam2", "sam2", "s1s2water"]
+seed: 42
+experiment_name: "sam2_sam2_s1s2water"
+
+data:
+  modal_type: "dual"
+  add_dem: false
+  add_slope: false
+  batch_size: 128
+  num_workers: 8
+
+trainer:
+  max_epochs: 50
+  check_val_every_n_epoch: 1
+  precision: "bf16-mixed"
+
+logger:
+  tensorboard:
+    save_dir: "${paths.log_dir}/tensorboard"
+    name: "${experiment_name}"
+    version: null
+
+model:
+  encoder:
+    optical_channels: ${data.optical_channels}
+    sar_channels: ${data.sar_channels}
+    drop_path_rate: 0.2
+
+  fusion:
+    _target_: src.models.fusion.FeatureFusion
+    fusion_type: "xattn"
+    xattn_apply_levels: [-1, -2]
+    xattn_reduction: 8
+    xattn_gamma_init: 0.0
+    xattn_align_bias: true
+    xattn_align_bias_scale: 1.0
+
+
+  decoder:
+    dropout: 0.1
+    up_mode: "bilinear"
+
+  loss_fn:
+    _target_: segmentation_models_pytorch.losses.FocalLoss
+    mode: "multiclass"
+    alpha: [0.15, 0.85]
+    gamma: 2.0
+    reduction: "mean"
+    _convert_: all
+
+  aux_loss_fn:
+    _target_: segmentation_models_pytorch.losses.DiceLoss
+    mode: "multiclass"
+    from_logits: true
+    smooth: 1e-6
+    _convert_: all
+
+  aux_loss_weight: 0.3
+  learning_rate: 5e-4
+  weight_decay: 1e-4
+
+
+  alignment_enabled: true
+  alignment_target_weight: 0.05
+  alignment_layers: [-1]
+  alignment_temperature: 0.08
+  alignment_num_samples: 256
+  alignment_patch_radius: 1
+  align_cap_ratio: 0.9
+
+

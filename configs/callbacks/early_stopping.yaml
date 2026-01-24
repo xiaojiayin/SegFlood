@@ -1,0 +1,19 @@
+# Early stopping (project default).
+# Docs: https://lightning.ai/docs/pytorch/stable/api/lightning.pytorch.callbacks.EarlyStopping.html
+
+early_stopping:
+  _target_: lightning.pytorch.callbacks.EarlyStopping
+
+  # Must match the metric you log in the LightningModule.
+  monitor: "val/water_iou"
+  mode: "max"
+
+  # Stop after N validation checks without improvement.
+  patience: 10
+  min_delta: 0.0
+
+  # Fail fast if the metric is missing (helps catch logging name mismatches).
+  strict: true
+  check_finite: true
+
+  verbose: false

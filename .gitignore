@@ -1,0 +1,40 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Logs / experiment outputs
+logs/
+lightning_logs/
+outputs/
+multirun/
+
+# ML tooling caches
+wandb/
+mlruns/
+aim/
+.cometml/
+
+# Model/data artifacts (keep code only)
+checkpoints/
+data/
+
+# Inference artifacts in this repo (generated, do not commit)
+scripts/infer/output/
+scripts/infer/output.zip
+
+# Env / secrets
+.env
+.env.*
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+

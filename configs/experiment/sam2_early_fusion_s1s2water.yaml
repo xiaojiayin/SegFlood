@@ -1,0 +1,61 @@
+﻿# @package _global_
+
+
+# Experiment overrides (Hydra).
+
+
+defaults:
+  - override /data: s1s2_water
+  - override /model: sam2_sam2
+  - override /callbacks: default
+  - override /logger: tensorboard
+  - override /trainer: gpu
+
+tags: ["early_fusion", "baseline", "sam2_small", "s1s2water", "single_encoder"]
+seed: 42
+experiment_name: "sam2_early_fusion_s1s2water"
+
+data:
+  modal_type: "dual"
+  output_image_key: true
+  batch_size: 128
+  num_workers: 8
+  add_dem: false
+  add_slope: false
+
+trainer:
+  max_epochs: 50
+  check_val_every_n_epoch: 1
+  precision: "bf16-mixed"
+
+logger:
+  tensorboard:
+    save_dir: "${paths.log_dir}/tensorboard"
+    name: "${experiment_name}"
+    version: null
+
+model:
+  encoder:
+    optical_model_name: "sam2_hiera_small"
+    sar_model_name: null
+    optical_pretrained: true
+    sar_pretrained: false
+    optical_channels: 6
+    sar_channels: 0
+
+  fusion:
+    fusion_type: "concat"
+
+  decoder:
+    dropout: 0.1
+    up_mode: "bilinear"
+
+  loss_fn:
+    _target_: torch.nn.CrossEntropyLoss
+    ignore_index: -1
+
+  learning_rate: 5e-4
+  weight_decay: 1e-4
+  num_classes: 2
+
+

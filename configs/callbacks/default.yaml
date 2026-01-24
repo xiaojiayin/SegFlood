@@ -1,0 +1,23 @@
+# Default callback set used by `configs/train.yaml` (`callbacks: default`).
+# This file composes the callback configs defined in separate YAMLs below.
+
+defaults:
+  - model_checkpoint
+  - early_stopping
+  - model_summary
+  - _self_
+
+# Minimal progress bar (does not require `rich`).
+progress_bar:
+  _target_: lightning.pytorch.callbacks.TQDMProgressBar
+  refresh_rate: 10
+
+# Tracks system/GPU stats during training; can be disabled if it adds overhead.
+device_stats_monitor:
+  _target_: lightning.pytorch.callbacks.DeviceStatsMonitor
+  cpu_stats: true
+
+# Logs LR values (useful for debugging schedulers and warmup).
+lr_monitor:
+  _target_: lightning.pytorch.callbacks.LearningRateMonitor
+  logging_interval: "epoch"

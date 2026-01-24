@@ -1,0 +1,61 @@
+﻿# @package _global_
+
+
+# Experiment overrides (Hydra).
+
+
+defaults:
+  - override /data: gf_floodnet
+  - override /model: efficientnetb4_mobilenetv3
+  - override /callbacks: default
+  - override /logger: tensorboard
+  - override /trainer: gpu
+
+tags: ["early_fusion", "baseline", "efficientnet_b4", "gffloodnet", "single_encoder"]
+seed: 42
+experiment_name: "efficientnetb4_early_fusion_gffloodnet"
+
+data:
+  modal_type: "dual"
+  output_image_key: true
+  batch_size: 128
+  num_workers: 8
+  val_split_pct: 0.2
+  test_split_pct: 0.1
+
+trainer:
+  max_epochs: 100
+  check_val_every_n_epoch: 1
+  precision: "bf16-mixed"
+
+logger:
+  tensorboard:
+    save_dir: "${paths.log_dir}/tensorboard"
+    name: "${experiment_name}"
+    version: null
+
+model:
+  encoder:
+    optical_model_name: "efficientnet_b4"
+    optical_pretrained: true
+    optical_channels: 5
+
+    sar_model_name: null
+    sar_pretrained: false
+    sar_channels: 0
+
+    drop_path_rate: 0.1
+
+  fusion:
+    fusion_type: "concat"
+
+  decoder:
+    dropout: 0.0
+    up_mode: "bilinear"
+
+  loss_fn:
+    _target_: torch.nn.CrossEntropyLoss
+    ignore_index: -1
+  learning_rate: 5e-4
+  weight_decay: 1e-4
+

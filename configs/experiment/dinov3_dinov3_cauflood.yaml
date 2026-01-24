@@ -1,0 +1,70 @@
+﻿# @package _global_
+
+
+# Experiment overrides (Hydra).
+
+
+defaults:
+  - override /data: cau_flood
+  - override /model: dinov3_dinov3
+  - override /callbacks: default
+  - override /logger: tensorboard
+  - override /trainer: gpu
+
+tags: ["dinov3", "cauflood", "dual_modal"]
+seed: 42
+experiment_name: "dinov3_dinov3_cauflood"
+
+data:
+  batch_size: 128
+  num_workers: 8
+
+trainer:
+  max_epochs: 100
+  check_val_every_n_epoch: 1
+  precision: "bf16-mixed"
+
+logger:
+  tensorboard:
+    save_dir: "${paths.log_dir}/tensorboard"
+    name: "${experiment_name}"
+    version: null
+
+model:
+  encoder:
+    optical_channels: ${data.optical_channels}
+    sar_channels: ${data.sar_channels}
+    drop_path_rate: 0.2
+
+  decoder:
+    _target_: src.models.decoders.UNetDecoder
+    num_classes: 2
+    dropout: 0.0
+
+  fusion:
+    _target_: src.models.fusion.FeatureFusion
+    fusion_type: "xattn"
+    xattn_apply_levels: [-1, -2]
+    xattn_reduction: 8
+    xattn_gamma_init: 0.0
+
+  loss_fn:
+    _target_: segmentation_models_pytorch.losses.FocalLoss
+    mode: "multiclass"
+    alpha: [0.15, 0.85]
+    gamma: 2.0
+    reduction: "mean"
+    _convert_: all
+
+  aux_loss_fn:
+    _target_: segmentation_models_pytorch.losses.DiceLoss
+    mode: "multiclass"
+    from_logits: true
+    smooth: 1e-6
+    _convert_: all
+
+  aux_loss_weight: 0.3
+  learning_rate: 5e-4
+  weight_decay: 1e-4
+
+

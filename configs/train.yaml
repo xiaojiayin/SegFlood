@@ -1,0 +1,29 @@
+# Main training config (Hydra entrypoint).
+# This file defines the default composition of data/model/callbacks/logger/trainer.
+defaults:
+  - _self_ # allow overriding the defaults below in this file
+
+  # Core components
+  - data: gf_floodnet
+  - model: resnet50_resnet50
+  - callbacks: default
+  - logger: tensorboard
+  - trainer: default
+
+  # Auxiliary configs
+  - paths: default
+  - extras: default
+  - hydra: default
+
+  # Optional: experiment overrides (select with `experiment=...`)
+  - experiment: null
+
+  # Optional: experiment overrides only (keep the repo minimal)
+
+# Task metadata
+task_name: "train"
+tags: ["dev"] # can be overridden by experiment configs
+train: True
+test: True
+ckpt_path: null
+seed: null

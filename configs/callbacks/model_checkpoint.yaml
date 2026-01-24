@@ -1,0 +1,22 @@
+# Model checkpointing (project default).
+# Docs: https://lightning.ai/docs/pytorch/stable/api/lightning.pytorch.callbacks.ModelCheckpoint.html
+
+model_checkpoint:
+  _target_: lightning.pytorch.callbacks.ModelCheckpoint
+
+  # Save checkpoints under the Hydra run directory.
+  dirpath: "${paths.output_dir}/checkpoints"
+
+  # Our primary selection metric is `val/water_iou` (higher is better).
+  monitor: "val/water_iou"
+  mode: "max"
+
+  # Keep only the best checkpoint + the latest checkpoint.
+  save_top_k: 1
+  save_last: true
+
+  # Make filenames stable and short (do not auto-append metric name).
+  auto_insert_metric_name: false
+  filename: "water_iou_{val/water_iou:.4f}"
+
+  verbose: false
