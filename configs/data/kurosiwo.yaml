@@ -1,0 +1,17 @@
+# Kuro Siwo DataModule config.
+# Sentinel-1 GRD SAR (VV/VH, 2 channels) + optional DEM
+# Task: SAR-only water mapping
+
+_target_: src.data.datamodules.kurosiwo.KuroSiwoDataModule
+
+root: ${paths.data_dir}/KuroSiwoGRD
+batch_size: 128
+num_workers: 4
+pin_memory: true
+use_dem: false
+zscore: true
+pickle_name: "KuroV2_grid_dict.gz"
+
+# Channel counts (optical_channels=0 for SAR-only)
+optical_channels: 0   # SAR-only dataset
+sar_channels: 2       # S1 VV/VH (+ 1 if use_dem=true)

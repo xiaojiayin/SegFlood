@@ -1,0 +1,15 @@
+# CAU-Flood DataModule config.
+# Sentinel-2 optical (pre-event, 4 bands BGRI) + Sentinel-1 SAR (post-event, VV/VH)
+# Task: optical-SAR flood change detection (label 1 = newly flooded pixels)
+
+_target_: src.data.datamodules.cau_flood.CAUFloodDataModule
+
+root: ${paths.data_dir}/CAUFlood
+modal_type: "dual"
+batch_size: 128
+num_workers: 4
+pin_memory: true
+
+# Channel counts
+optical_channels: 4   # S2 BGRI
+sar_channels: 2       # S1 VV/VH

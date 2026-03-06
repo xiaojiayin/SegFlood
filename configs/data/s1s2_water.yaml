@@ -1,0 +1,18 @@
+# S1S2-Water DataModule config.
+# Co-registered Sentinel-1 SAR (VV/VH) + Sentinel-2 optical (BGRI) + optional DEM/slope
+# Task: global permanent water segmentation
+
+_target_: src.data.datamodules.s1s2_water.S1S2WaterDataModule
+
+root: ${paths.data_dir}/S1S2Water
+modal_type: "dual"
+batch_size: 128
+num_workers: 4
+pin_memory: true
+add_dem: false
+add_slope: false
+output_image_key: false   # set true for early-fusion experiments
+
+# Base channel counts (DEM/slope channels are added automatically when enabled)
+optical_channels: 4   # S2 BGRI
+sar_channels: 2       # S1 VV/VH

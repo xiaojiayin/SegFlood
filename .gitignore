@@ -22,7 +22,7 @@ aim/
 
 # Model/data artifacts (keep code only)
 checkpoints/
-data/
+/data/
 
 # Inference artifacts in this repo (generated, do not commit)
 scripts/infer/output/

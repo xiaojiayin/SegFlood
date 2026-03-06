@@ -1,0 +1,16 @@
+# GF-FloodNet DataModule config.
+# GF-3 SAR (VV, 1 channel) + GF-2 optical (RGB, 3 channels)
+# Task: SAR-optical flood segmentation (label 1 = all water)
+
+_target_: src.data.datamodules.gf_floodnet.GFFloodNetDataModule
+
+root: ${paths.data_dir}/GFFloodNet
+modal_type: "dual"
+batch_size: 128
+num_workers: 4
+pin_memory: true
+predict_use_full: false
+
+# Channel counts (used by model configs via ${data.optical_channels} etc.)
+optical_channels: 3   # GF-2 RGB
+sar_channels: 1       # GF-3 VV

@@ -1,0 +1,25 @@
+# WorldFloods v2 DataModule config.
+# Sentinel-2 L1C optical (BGRI, 4 channels)
+# Task: optical-only flood and surface-water segmentation
+
+_target_: src.data.datamodules.worldfloodsv2.WorldFloodsv2DataModule
+
+root: ${paths.data_dir}/WorldFloodsV2
+batch_size: 64
+num_workers: 4
+pin_memory: true
+
+# Channel selection: "bgri" = B2, B3, B4, B8 (4 bands)
+channels: "bgri"
+target_type: "binary"
+water_values: [2]
+ignore_index: -1
+ignore_values: [0, 3]
+test_use_tiles: false  # full-scene inference by default
+official_normalization: true
+add_mndwi_input: false
+window_size: [1024, 1024]
+
+# Channel counts
+optical_channels: 4   # derived from "bgri" config (overridden by DataModule __init__)
+sar_channels: 0       # optical-only dataset
