@@ -1,5 +1,7 @@
 ## MA-XAttn: A Unified Optical--SAR Benchmark and Fusion Framework for Flood and Surface-Water Mapping
 
+> **中文文档**: [README_CN.md](README_CN.md)
+
 SegFlood is a research codebase for multi-modal flood (or water) segmentation with a unified Hydra + PyTorch Lightning pipeline. It supports:
 
 - Multi-modal inputs: **Optical** (e.g., RGB+NIR) + **SAR** (VV/VH)
