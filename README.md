@@ -30,16 +30,26 @@ SegFlood is a research codebase for multi-modal flood (or water) segmentation wi
 ## Repository layout
 
 ```text
-configs/                 # Hydra configs (data/model/trainer/logger/experiment)
+configs/
+  data/                  # per-dataset DataModule configs (gf_floodnet, cau_flood, ...)
+  model/                 # model/encoder/fusion/decoder configs
+  experiment/            # full experiment overrides
+  trainer/               # Lightning Trainer configs
+  callbacks/             # callback configs
+  logger/                # logger configs
 src/
   train.py               # main training entrypoint (Hydra)
   eval.py                # evaluation entrypoint (Hydra)
-  data/                  # datasets + datamodules
+  data/
+    datasets/            # torch.utils.data.Dataset implementations per dataset
+    datamodules/         # Lightning DataModule implementations per dataset
   models/                # encoders/fusion/decoders + LightningModule
   infer/                 # prediction writers + dataset-specific inference utilities
+  utils/                 # logging, instantiators, and other utilities
 scripts/
   run/                   # SLURM training scripts (sbatch)
   infer/                 # SLURM inference scripts + thin python entrypoints
+  data_pre/              # dataset pre-processing scripts
 assets/                  # figures used in the README
 ```
 

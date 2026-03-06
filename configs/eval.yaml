@@ -2,8 +2,8 @@
 
 defaults:
   - _self_
-  - data: mnist # choose datamodule with `test_dataloader()` for evaluation
-  - model: mnist
+  - data: gf_floodnet  # override with the dataset used for training, e.g. data=cau_flood
+  - model: resnet50_resnet50
   - logger: null
   - trainer: default
   - paths: default
