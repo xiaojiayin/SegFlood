@@ -13,15 +13,16 @@ def _norm(norm: str, num_channels: int) -> nn.Module:
 
 class ShallowDetailEncoder(nn.Module):
     """
-    Lightweight spatial-detail encoder.
+    轻量级空间细节编码器：仅产出 1/4 与 1/8 两级特征，用于给 ViT 等单尺度主干提供浅层 skip。
 
-    Produces only 1/4 and 1/8 resolution features to complement single-scale backbones (e.g. ViT).
-    Returns [feat4x, feat8x].
+    结构：
+      stem (stride=2) → stage4x (stride=2) → stage8x (stride=2)
+      仅返回 [feat4x, feat8x]
     """
 
     def __init__(self, in_channels: int, c2: int, c4: int, c8: int, norm: str = "bn"):
         super().__init__()
-        # 2x feature channels
+        # 2x 特征通道
         c2 = int(c2)
         mid = max(16, c2)
         self.stem = nn.Sequential(

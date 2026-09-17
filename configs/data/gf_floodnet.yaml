@@ -1,0 +1,169 @@
+# GF-FloodNet DataModule 配置文件
+# 遵循 TorchGeo 标准，支持 Lightning + Hydra 集成
+# 通过配置驱动的方式实现灵活的数据增强策略
+
+# --- Hydra 实例化目标 ---
+_target_: src.data.datamodules.gf_floodnet.GFFloodNetDataModule
+
+# --- 基础数据集配置 ---
+root: "${paths.data_dir}/GF-FloodNet"
+batch_size: 64  # 基础批次大小，实验配置可覆盖
+num_workers: 4
+
+# --- 数据集分割配置 ---
+val_split_pct: 0.2    # 验证集比例：20%
+test_split_pct: 0.1   # 测试集比例：10%
+
+# --- GF-FloodNet通道配置 ---
+optical_channels: 4  # 光学数据: Blue, Green, Red, NIR (4个波段)
+sar_channels: 1      # SAR数据: VV极化 (1个通道)
+
+# --- 模态配置 ---
+modal_type: "dual"  # 默认双模态，可在实验配置中覆盖为"optical"或"sar"
+eval_modal_mode: "dual"  # 评估阶段缺模态测试: dual | optical_only | sar_only
+holdout_patterns: null   # GF-FloodNet cross-event/region holdout 文件名 pattern 列表
+
+# --- 数据增强配置 ---
+# 🎯 架构：几何变换通过data_keys同步，标准化在DataModule中处理
+train_transforms:
+  _target_: kornia.augmentation.AugmentationSequential
+  data_keys: ["input", "mask"]
+  same_on_batch: false
+  _args_:
+    
+    # === 推荐的基础增强配置 (安全且强泛化，不会破坏掩码) ===
+    # 水平翻转 - 增强模型对左右对称的鲁棒性
+    - _target_: kornia.augmentation.RandomHorizontalFlip
+      p: 0.5
+    
+    # 垂直翻转 - 增强模型对上下对称的鲁棒性
+    - _target_: kornia.augmentation.RandomVerticalFlip
+      p: 0.5
+    
+    - _target_: kornia.augmentation.RandomRotation
+      p: 0.2
+      degrees: 30.0
+    
+    - _target_: kornia.augmentation.RandomAffine
+      p: 0.2
+      degrees: 0.0  # 避免双重旋转
+      translate: [0.1, 0.1]
+      scale: [0.95, 1.05]
+    
+    # === 进阶增强选项 (可逐步尝试，模拟遥感成像畸变) ===
+    # 透视变换 - 模拟重采样和地理配准误差 (谨慎启用)
+    # - _target_: kornia.augmentation.RandomPerspective
+    #   p: 0.05              # 降低概率，避免过度变形
+    #   distortion_scale: 0.2
+    #   resample: "nearest"  # 确保mask保持离散值
+    
+    # 弹性变形 - 模拟地理投影变形 (谨慎启用)
+    # - _target_: kornia.augmentation.RandomElasticTransform
+    #   resample: "nearest"  # 确保mask保持离散值
+    #   p: 0.02              # 非常低的概率
+    #   kernel_size: [31, 31]  # 更小的核，避免过度变形
+    #   sigma: [16.0, 16.0]    # 更保守的参数
+    #   alpha: [0.5, 0.5]      # 更小的变形幅度
+
+    # === 光谱/颜色变换 (注意：这些变换会同时应用到图像和掩码) ===
+    # 在当前单一AugmentationSequential结构下，无法区分图像和掩码
+    # 因此颜色变换需谨慎使用，避免破坏掩码
+    
+    # 颜色抖动 - 模拟光照条件变化 (谨慎启用，会影响掩码)
+    # - _target_: kornia.augmentation.ColorJitter
+    #   p: 0.3
+    #   brightness: 0.2    # 亮度变化: ±20%
+    #   contrast: 0.2      # 对比度变化: ±20%
+    #   saturation: 0.15   # 饱和度变化: ±15%
+    #   hue: 0.1          # 色调变化: ±10%
+    
+    # 随机伽马校正 - 模拟不同传感器响应 (谨慎启用)
+    # - _target_: kornia.augmentation.RandomGamma
+    #   p: 0.2
+    #   gamma: [0.8, 1.2]  # 伽马值范围
+    
+    # 通道随机化 - 增强对波段顺序的鲁棒性 (谨慎启用)
+    # - _target_: kornia.augmentation.RandomChannelShuffle
+    #   p: 0.1
+    
+    # 自动对比度 - 增强图像对比度 (谨慎启用)
+    # - _target_: kornia.augmentation.RandomAutoContrast
+    #   p: 0.2
+    
+    # 直方图均衡化 - 增强对比度 (谨慎启用)
+    # - _target_: kornia.augmentation.RandomEqualize
+    #   p: 0.2
+
+    # === 噪声与模糊变换 (会同时应用到图像和掩码) ===
+    # 高斯模糊 - 模拟大气散射效应 (谨慎启用，会模糊掩码边缘)
+    # - _target_: kornia.augmentation.RandomGaussianBlur
+    #   p: 0.2
+    #   kernel_size: [3, 3]
+    #   sigma: [0.1, 2.0]
+    
+    # 高斯噪声 - 模拟传感器噪声 (谨慎启用)
+    # - _target_: kornia.augmentation.RandomGaussianNoise
+    #   p: 0.2
+    #   mean: 0.0
+    #   std: 0.05
+    
+    # 运动模糊 - 模拟平台振动 (谨慎启用)
+    # - _target_: kornia.augmentation.RandomMotionBlur
+    #   p: 0.1
+    #   kernel_size: 3
+    #   angle: 35.0
+    #   direction: [-1.0, 1.0]
+    
+    # 锐化滤波 - 增强边缘信息 (谨慎启用)
+    # - _target_: kornia.augmentation.RandomSharpness
+    #   p: 0.2
+    #   sharpness: 2.0
+
+    # === 正则化变换 (会同时应用到图像和掩码) ===
+    # 随机擦除 - 模拟遮挡和缺失数据 (谨慎启用，会擦除掩码区域)
+    # - _target_: kornia.augmentation.RandomErasing
+    #   p: 0.2
+    #   scale: [0.02, 0.1]    # 擦除区域占比: 2%-10%
+    #   ratio: [0.3, 3.3]     # 擦除区域宽高比
+    #   value: 0.0            # 填充值
+    
+    # 随机灰度化 - 测试对色彩信息的依赖 (谨慎启用)
+    # - _target_: kornia.augmentation.RandomGrayscale
+    #   p: 0.1
+    
+    # 随机反相 - 增加数据多样性 (谨慎启用)
+    # - _target_: kornia.augmentation.RandomInvert
+    #   p: 0.05
+    
+    # 随机海报化 - 减少颜色层次 (谨慎启用)
+    # - _target_: kornia.augmentation.RandomPosterize
+    #   p: 0.1
+    #   bits: 4
+
+# === 验证和测试数据增强配置 ===
+# 验证/测试阶段不应用随机增强，确保结果可复现
+val_transforms: null
+test_transforms: null
+
+# === 标准化配置 (DataModule统一处理) ===
+# 🎯 职责分离：Dataset负责percentile normalization，DataModule负责标准化
+# 📊 使用GF-FloodNet官方推荐的percentile归一化统计量 (恢复2025-09-03)
+# 基于2-98th百分位裁剪后的统计结果，波段顺序: [Blue, Green, Red, NIR, SAR]
+normalization_mean: [0.666135, 0.404481, 0.247136, 0.350982, 0.371458]
+normalization_std: [0.245092, 0.194524, 0.200037, 0.232912, 0.301114]
+
+# === 使用说明和推荐策略 ===
+# 🌟 当前已启用的推荐配置（适合大多数遥感语义分割任务）：
+#    - 水平/垂直翻转：安全且有效的基础增强
+#    - 随机旋转：增强对不同朝向的鲁棒性
+#    - 仿射变换：模拟成像角度变化
+#
+# 📋 配置指南：
+# 1. 默认配置已针对遥感分割优化，可直接使用
+# 2. 如需进阶增强，取消注释透视变换/弹性变形（已降低概率）
+# 3. 调整 p 参数控制增强应用概率 (0.0=从不应用, 1.0=总是应用)
+# 4. ⚠️ 重要：几何变换对图像和掩码都安全，颜色变换会破坏掩码
+# 5. 建议：先用默认配置训练，观察效果后再考虑启用进阶选项
+# 6. 验证时不应用增强，确保评估结果可复现
+# 7. 对于遥感多光谱数据，避免过强的颜色增强破坏光谱特性
+# 8. 如需分离式增强（只对图像或只对掩码），需修改DataModule架构

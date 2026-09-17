@@ -1,0 +1,27 @@
+stage	seed	condition	job_id	depends_on	note
+train	123	-	536369	-	jag26_smagnet_gf_sym_align_minep50_s123
+eval	123	optical_cloud	536370	536369	jag26_rob_gf_symLAST_s123_optical_cloud
+eval	123	sar_noise	536371	536369	jag26_rob_gf_symLAST_s123_sar_noise
+eval	123	missing_optical	536372	536369	jag26_rob_gf_symLAST_s123_missing_optical
+eval	123	missing_sar	536373	536369	jag26_rob_gf_symLAST_s123_missing_sar
+train	2026	-	536374	-	jag26_smagnet_gf_sym_align_minep50_s2026
+eval	2026	optical_cloud	536375	536374	jag26_rob_gf_symLAST_s2026_optical_cloud
+eval	2026	sar_noise	536376	536374	jag26_rob_gf_symLAST_s2026_sar_noise
+eval	2026	missing_optical	536377	536374	jag26_rob_gf_symLAST_s2026_missing_optical
+eval	2026	missing_sar	536378	536374	jag26_rob_gf_symLAST_s2026_missing_sar
+eval	123	optical_cloud	536565	536369	jag26_rob_gf_symLAST_s123_optical_cloud (resubmitted, sh-compatible)
+eval	123	sar_noise	536566	536369	jag26_rob_gf_symLAST_s123_sar_noise (resubmitted, sh-compatible)
+eval	123	missing_optical	536567	536369	jag26_rob_gf_symLAST_s123_missing_optical (resubmitted, sh-compatible)
+eval	123	missing_sar	536568	536369	jag26_rob_gf_symLAST_s123_missing_sar (resubmitted, sh-compatible)
+eval	2026	optical_cloud	536569	536374	jag26_rob_gf_symLAST_s2026_optical_cloud (resubmitted, sh-compatible)
+eval	2026	sar_noise	536570	536374	jag26_rob_gf_symLAST_s2026_sar_noise (resubmitted, sh-compatible)
+eval	2026	missing_optical	536571	536374	jag26_rob_gf_symLAST_s2026_missing_optical (resubmitted, sh-compatible)
+eval	2026	missing_sar	536572	536374	jag26_rob_gf_symLAST_s2026_missing_sar (resubmitted, sh-compatible)
+eval	123	optical_cloud	536623	536369	jag26_rob_gf_symLAST_s123_optical_cloud (helper script)
+eval	123	sar_noise	536624	536369	jag26_rob_gf_symLAST_s123_sar_noise (helper script)
+eval	123	missing_optical	536625	536369	jag26_rob_gf_symLAST_s123_missing_optical (helper script)
+eval	123	missing_sar	536626	536369	jag26_rob_gf_symLAST_s123_missing_sar (helper script)
+eval	2026	optical_cloud	536627	536374	jag26_rob_gf_symLAST_s2026_optical_cloud (helper script)
+eval	2026	sar_noise	536628	536374	jag26_rob_gf_symLAST_s2026_sar_noise (helper script)
+eval	2026	missing_optical	536629	536374	jag26_rob_gf_symLAST_s2026_missing_optical (helper script)
+eval	2026	missing_sar	536630	536374	jag26_rob_gf_symLAST_s2026_missing_sar (helper script)

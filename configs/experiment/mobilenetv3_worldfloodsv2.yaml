@@ -1,8 +1,6 @@
-﻿# @package _global_
+# @package _global_
 
-
-# Experiment overrides (Hydra).
-
+# WorldFloodsv2: MobileNetV3-Large-100 单编码器（光学-only）
 
 defaults:
   - override /data: worldfloodsv2

@@ -1,0 +1,75 @@
+# WHU-OPT-SAR DataModule配置文件
+# 100样本多模态遥感分割数据集 (optical RGBA + SAR → 8类语义分割)
+# 基于详细数据集分析：5556×3704像素，RGBA+SAR，类别不平衡分布
+
+_target_: src.data.datamodules.whu_opt_sar.WHUOptSARDataModule
+
+# --- 数据集路径 ---
+root: "${paths.data_dir}/whu-opt-sar"
+
+# --- 批次配置 (适应512×512裁剪后的图像) ---
+batch_size: 64   # 512×512×5通道，可以使用较大批次
+num_workers: 4
+
+# --- 数据划分 (适合100样本) ---
+val_split: 0.2    # 80:20划分 (80训练, 20验证)
+random_seed: 42   # 确保可重复划分
+
+# --- WHU-OPT-SAR通道配置 ---
+optical_channels: 4  # 光学数据: Red, Green, Blue, Alpha (RGBA格式)
+sar_channels: 1      # SAR数据: 单极化 (1个通道)
+
+# --- 裁剪设置（在数据集CPU端进行，避免GPU内存压力） ---
+crop_size: [512, 512]       # 训练集：随机裁剪尺寸 (H, W)
+val_crop_size: [512, 512]   # 验证/测试：中心裁剪尺寸 (H, W)
+train_samples_per_image: 4  # 每张大图抽样次数（训练）；可设大于1以增加batch内多样性
+
+# --- 测试滑窗设置 ---
+test_tile_size: [512, 512]
+test_tile_stride: [384, 384]
+
+# --- 数据增强配置 (针对大分辨率遥感图像) ---
+train_transforms:
+  _target_: kornia.augmentation.AugmentationSequential
+  _args_:
+    # 基础几何变换 - 适合遥感数据
+    - _target_: kornia.augmentation.RandomHorizontalFlip
+      p: 0.5
+    - _target_: kornia.augmentation.RandomVerticalFlip
+      p: 0.5
+  # 🚨 关键修复：字典输入时必须data_keys=null  
+  data_keys: null  # 必须设置为null！
+
+# 验证集：固定中心裁剪，确保结果可重现
+val_transforms:
+  _target_: kornia.augmentation.AugmentationSequential
+  _args_:
+    # 验证集使用identity变换（不做任何操作，但满足AugmentationSequential要求）
+    - _target_: kornia.augmentation.RandomHorizontalFlip
+      p: 0.0  # p=0表示不执行，但保持结构完整
+  data_keys: null  # 修复：字典输入时必须为null！
+      
+# 测试集：同验证集，固定中心裁剪
+test_transforms:
+  _target_: kornia.augmentation.AugmentationSequential
+  _args_:
+    # 测试集使用identity变换（不做任何操作，但满足AugmentationSequential要求）
+    - _target_: kornia.augmentation.RandomHorizontalFlip
+      p: 0.0  # p=0表示不执行，但保持结构完整
+  data_keys: null  # 修复：字典输入时必须为null！
+
+# === WHU-OPT-SAR数据集说明 ===
+# 📊 数据特征:
+#   - 样本数: 100
+#   - 分辨率: 5556×3704 (超大图像)
+#   - 通道: 5 (RGBA光学 + SAR)
+#   - 类别: 8类不平衡分布
+#     * forest: 40.7%, farmland: 40.4% (主导类别)
+#     * water: 6.4%, village: 5.7%, city: 3.8%
+#     * others: 1.9%, road: 1.0%, background: 0.0%
+#
+# ⚠️  注意事项:
+#   - 图像极大，需要小批次 (建议1-4)
+#   - 类别严重不平衡，需加权损失
+#   - 小样本容易过拟合，保守增强
+#   - 考虑mixed precision节省GPU内存

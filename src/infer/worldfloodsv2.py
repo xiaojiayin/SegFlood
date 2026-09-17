@@ -12,15 +12,11 @@ from src.data.datasets.worldfloodsv2 import CHANNELS_CONFIGURATIONS  # type: ign
 
 class WorldFloodsPredictWriter(Callback):
     """
-    Driven by `Trainer.predict`, but performs full-scene sliding-window inference in `on_predict_end`
-    (reusing DataModule configuration and preprocessing).
-
-    Outputs:
-    - predictions/<stem>.tif (GeoTIFF; values in {0,255})
-    - overall_metrics.xlsx, detailed_samples.xlsx
-
-    Note: batch outputs during the predict loop are not used. We run inference at the end to
-    reduce peak memory usage and avoid OOM.
+    使用 Trainer.predict 驱动，但在 on_predict_end 中执行整图滑窗推理（复用 DataModule 配置与预处理），
+    输出：
+    - predictions/<stem>.tif（0/255，GeoTIFF）
+    - overall_metrics.xlsx、detailed_samples.xlsx（完整指标）
+    说明：predict 阶段的 batch 输出不使用，仅在 predict 结束后统一处理，避免 OOM。
     """
     def __init__(self, output_dir: str, save_predictions: bool, amp: bool = False) -> None:
         super().__init__()
@@ -37,29 +33,29 @@ class WorldFloodsPredictWriter(Callback):
             os.makedirs(self.preds_dir, exist_ok=True)
 
     def on_predict_end(self, trainer, pl_module) -> None:
-        # Get test dataset from DataModule and run full-scene sliding-window inference.
+        # 从 DataModule 获取测试集并执行整图滑窗
         dm = getattr(trainer, "datamodule", None)
         if dm is None or not hasattr(dm, "test_dataset"):
-            raise RuntimeError("WorldFloods: missing test_dataset")
+            raise RuntimeError("WorldFloods: 缺少 test_dataset")
         test_ds = dm.test_dataset
         device = pl_module.device
         for idx in range(len(test_ds)):
-            # Read GT and resolve image path
+            # 读取 GT 与图像路径
             item = test_ds[idx]
             mask = item["mask"].to(device)
-            # Resolve full-scene image path from dataset (if available)
+            # 从 dataset 获取原图路径
             img_path = None
             if hasattr(test_ds, "samples"):
                 sam = test_ds.samples[idx]
                 img_path = sam.get("img")
             if img_path is None:
-                # Unsupported dataset type (e.g., tiles-only); fall back to a synthetic name.
+                # 不支持的 dataset 类型（仅 tiles 时无法整图写出）
                 stem = f"sample_{idx:06d}"
             else:
                 stem = os.path.splitext(os.path.basename(img_path))[0]
-            # Sliding-window inference
+            # 滑窗推理
             pred = self._predict_scene(pl_module, dm, img_path, device) if img_path else torch.argmax(pl_module(item.unsqueeze(0) if torch.is_tensor(item) else item)["main_logits"], dim=1)[0]
-            # Metrics (ignore -1)
+            # 指标（忽略 -1）
             g_flat = mask.flatten()
             p_flat = pred.to(device).flatten()
             valid = (g_flat != -1)
@@ -88,18 +84,18 @@ class WorldFloodsPredictWriter(Callback):
                 miou = bg_iou
             else:
                 miou = 0.0
-            # Consistent with training logs: macro average for precision/recall/f1
-            # Positive class (flood/water)
+            # 按训练期口径：precision/recall/f1 使用宏平均（macro）
+            # 类1（洪水）
             prec_pos = (tp / (tp + fp)) if (tp + fp) > 0 else 0.0
             rec_pos = (tp / (tp + fn)) if (tp + fn) > 0 else 0.0
             f1_pos = (2 * prec_pos * rec_pos / (prec_pos + rec_pos)) if (prec_pos + rec_pos) > 0 else 0.0
-            spec_pos = (tn / (tn + fp)) if (tn + fp) > 0 else 0.0  # equivalent to specificity of the positive class
-            # Negative class (background)
+            spec_pos = (tn / (tn + fp)) if (tn + fp) > 0 else 0.0  # 等价于类1的specificity
+            # 类0（背景）
             tp_neg = tn
             fp_neg = fn
             fn_neg = fp
             prec_neg = (tp_neg / (tp_neg + fp_neg)) if (tp_neg + fp_neg) > 0 else 0.0  # = tn/(tn+fn)
-            rec_neg = (tp_neg / (tp_neg + fn_neg)) if (tp_neg + fn_neg) > 0 else 0.0  # = tn/(tn+fp) (also specificity of the positive class)
+            rec_neg = (tp_neg / (tp_neg + fn_neg)) if (tp_neg + fn_neg) > 0 else 0.0  # = tn/(tn+fp)（亦即类1的specificity）
             f1_neg = (2 * prec_neg * rec_neg / (prec_neg + rec_neg)) if (prec_neg + rec_neg) > 0 else 0.0
             spec_neg = (tp / (tp + fn)) if (tp + fn) > 0 else 0.0
             precision_macro = 0.5 * (prec_pos + prec_neg)
@@ -122,7 +118,7 @@ class WorldFloodsPredictWriter(Callback):
                 "bg_false_alarm_rate": bg_false_alarm_rate,
                 "flood_miss_rate": flood_miss_rate,
             })
-            # Write GeoTIFF
+            # 写 GeoTIFF
             if self.save_predictions and img_path is not None:
                 with rio.open(img_path) as src:
                     profile = src.profile.copy()
@@ -130,7 +126,7 @@ class WorldFloodsPredictWriter(Callback):
                 tif_path = os.path.join(self.preds_dir, f"{stem}.tif")
                 with rio.open(tif_path, "w", **profile) as dst:
                     arr = (pred.detach().cpu() > 0).to(torch.uint8).numpy() * 255
-                    # Visualization: cloud pixels (from GT=3) -> 3; image nodata (band mask=0) -> 4
+                    # 分离可视化：云(来自 GT=3) → 3；影像 nodata(来自影像掩膜=0) → 4
                     try:
                         msk_path = None
                         if hasattr(test_ds, "samples"):
@@ -154,17 +150,17 @@ class WorldFloodsPredictWriter(Callback):
                     except Exception:
                         arr = arr.astype(np.uint8)
                     dst.write(arr, 1)
-                    # Colormap: 0=black (land), 255=red (flood), 3=light gray (cloud), 4=dark gray (image nodata)
+                    # 调色板：0=黑(陆地), 255=红(洪水), 3=浅灰(云), 4=深灰(影像无效/缺测)
                     try:
                         dst.write_colormap(1, {
                             0: (0, 0, 0, 255),
-                            3: (200, 200, 200, 255),   # cloud
-                            4: (128, 128, 128, 255),   # image nodata / missing data
+                            3: (200, 200, 200, 255),   # 云
+                            4: (128, 128, 128, 255),   # 影像无效/缺测
                             255: (255, 0, 0, 255),
                         })
                     except Exception:
                         pass
-        # Overall summary
+        # 汇总
         denom_all = self.total_tp + self.total_fp + self.total_tn + self.total_fn
         denom_iou_w = self.total_tp + self.total_fp + self.total_fn
         denom_iou_bg = self.total_tn + self.total_fp + self.total_fn
@@ -181,13 +177,13 @@ class WorldFloodsPredictWriter(Callback):
             miou = bg_iou
         else:
             miou = 0.0
-        # Macro average (consistent with training)
-        # Positive class (flood/water)
+        # 宏平均（macro）与训练一致
+        # 类1（洪水）
         prec_pos = self.total_tp / (self.total_tp + self.total_fp) if (self.total_tp + self.total_fp) > 0 else 0.0
         rec_pos = self.total_tp / (self.total_tp + self.total_fn) if (self.total_tp + self.total_fn) > 0 else 0.0
         f1_pos = (2 * prec_pos * rec_pos / (prec_pos + rec_pos)) if (prec_pos + rec_pos) > 0 else 0.0
         spec_pos = self.total_tn / (self.total_tn + self.total_fp) if (self.total_tn + self.total_fp) > 0 else 0.0
-        # Negative class (background)
+        # 类0（背景）
         tp_neg = self.total_tn
         fp_neg = self.total_fn
         fn_neg = self.total_fp
@@ -228,7 +224,7 @@ class WorldFloodsPredictWriter(Callback):
         from rasterio.windows import Window
         with rio.open(img_path) as src:
             H, W = src.height, src.width
-            # Use the same channel configuration as the DataModule
+            # 使用与 DataModule 一致的通道配置
             channels_cfg = getattr(dm, "kwargs", {}).get("channels", "bgri")
             idxs_0b = None
             if isinstance(channels_cfg, str) and channels_cfg in CHANNELS_CONFIGURATIONS:
@@ -238,7 +234,7 @@ class WorldFloodsPredictWriter(Callback):
                     idxs_0b = [int(i) for i in channels_cfg]
                 except Exception:
                     idxs_0b = None
-            # Convert to rasterio 1-based indexing; if unknown, conservatively take the first 4 bands.
+            # 转为 rasterio 1-based 索引；若未知则保守地取前4通道
             if idxs_0b is not None and len(idxs_0b) > 0:
                 idxs = [i + 1 for i in idxs_0b if (i + 1) <= src.count]
                 if len(idxs) == 0:

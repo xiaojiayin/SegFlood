@@ -1,8 +1,6 @@
-﻿# @package _global_
+# @package _global_
 
-
-# Experiment overrides (Hydra).
-
+# KuroSiwo 纯 SAM2 主干实验（SAR-only，洪水后影像 vv+vh 两通道）
 
 defaults:
   - override /data: kurosiwo
@@ -11,25 +9,30 @@ defaults:
   - override /logger: tensorboard
   - override /trainer: gpu
 
+# 实验标识
 tags: ["sam2", "kurosiwo", "sar"]
 seed: 42
 experiment_name: "sam2_sam2_kurosiwo"
 
+# 数据配置（KuroSiwo SAR-only）
 data:
   batch_size: 128
   num_workers: 8
 
+# 训练配置
 trainer:
   max_epochs: 50
   check_val_every_n_epoch: 1
   precision: "bf16-mixed"
 
+# 日志配置
 logger:
   tensorboard:
     save_dir: "${paths.log_dir}/tensorboard"
     name: "${experiment_name}"
     version: null
 
+# 模型配置
 model:
   encoder:
     optical_channels: ${data.optical_channels}
@@ -44,7 +47,7 @@ model:
     reduction: "mean"
     ignore_index: -1
     _convert_: all
-
+  
   aux_loss_fn:
     _target_: segmentation_models_pytorch.losses.DiceLoss
     mode: "multiclass"
@@ -52,7 +55,7 @@ model:
     smooth: 1e-6
     ignore_index: -1
     _convert_: all
-
+  
   aux_loss_weight: 0.3
   learning_rate: 5e-4
   weight_decay: 1e-4

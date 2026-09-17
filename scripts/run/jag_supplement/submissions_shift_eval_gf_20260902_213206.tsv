@@ -1,0 +1,5 @@
+model	shift	job_id	ckpt
+inputconcat	0	505712	logs/jag26_alignfix_canonical_baselines_gf_gf_canonical_inputconcat_s42_2026-09-01_16-21-55/checkpoints/water_iou_0.9659.ckpt
+dualconcat	0	505713	logs/jag26_alignfix_canonical_baselines_gf_gf_canonical_dualconcat_s42_2026-09-01_17-46-31/checkpoints/water_iou_0.9662.ckpt
+stdcross	0	505714	logs/jag26_alignfix_canonical_baselines_gf_gf_canonical_stdcross_s42_2026-09-01_17-54-48/checkpoints/water_iou_0.9614.ckpt
+gated	0	505715	logs/jag26_alignfix_canonical_baselines_gf_gf_canonical_gated_s42_2026-09-01_17-55-17/checkpoints/water_iou_0.9667.ckpt

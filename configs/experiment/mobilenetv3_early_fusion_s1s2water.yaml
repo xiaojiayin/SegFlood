@@ -1,8 +1,7 @@
-﻿# @package _global_
+# @package _global_
 
-
-# Experiment overrides (Hydra).
-
+# 早期融合 baseline 实验：MobileNetV3-Large-100 单编码器
+# S1S2-Water 数据集版本
 
 defaults:
   - override /data: s1s2_water
@@ -38,6 +37,7 @@ model:
   encoder:
     optical_model_name: "mobilenetv3_large_100"
     optical_pretrained: false
+    # 早期融合：RGBNIR(4)+SAR(VV+VH 2)=6
     optical_channels: 6
     sar_model_name: null
     sar_pretrained: false

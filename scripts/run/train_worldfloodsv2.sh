@@ -11,55 +11,38 @@
 
 set -euo pipefail
 
-# Usage:
+# 用法：
 #   sbatch scripts/run/train_worldfloodsv2.sh [CHANNELS_KEY] [EXPERIMENT_NAME]
-# Notes:
-#   - CHANNELS_KEY: must match the dataset config (e.g., bgri, all, ...)
+# 说明：
+#   CHANNELS_KEY（写入 data.channels）：可选值与数据配置一致，例如
+#     rgb | bgr | bgri | riswir | bgriswir | bgriswirs | l89s2 | sub_20 | all
+#   EXPERIMENT_NAME：直接指定实验配置名，例如
+#     dinov3_worldfloodsv2 | sam2_worldfloodsv2 | efficientnetb4_worldfloodsv2 | resnet50_worldfloodsv2 | mobilenetv3_worldfloodsv2
 
 CHANNELS_KEY=${1:-bgri}
 EXP=${2:-dinov3_worldfloodsv2}
 
-###############################################################################
-# Runtime configuration (override via env vars if needed)
-# - PROJECT_ROOT: repo root (default: inferred from this script location)
-# - DATA_ROOT_BASE: dataset base dir (default: $PROJECT_ROOT/data)
-# - DATA_ROOT_WF2: WorldFloodsv2 root (default: $DATA_ROOT_BASE/WorldFloodsv2)
-# - CONDA_ENV: conda env name to activate (optional; otherwise activate before sbatch)
-# - HF_ENDPOINT / HF_TOKEN: Hugging Face settings (optional)
-# - HF_HUB_CACHE / TORCH_HOME: caches (optional; defaults under $PROJECT_ROOT/checkpoints)
-###############################################################################
-
-PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-export PROJECT_ROOT
-
-DATA_ROOT_BASE="${DATA_ROOT_BASE:-${PROJECT_ROOT}/data}"
-DATA_ROOT_WF2="${DATA_ROOT_WF2:-${DATA_ROOT_BASE}/WorldFloodsv2}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null || pwd)}"
+DATA_ROOT_WF2="${PROJECT_ROOT}/data/WorldFloodsv2"
 
 SUF="ch-${CHANNELS_KEY}"
 EXP_NAME="${EXP}_${SUF}"
 
-: "${HF_ENDPOINT:=}"
-: "${HF_TOKEN:=}"
-: "${HF_HUB_CACHE:=${PROJECT_ROOT}/checkpoints/.cache}"
-: "${TORCH_HOME:=${PROJECT_ROOT}/checkpoints}"
-export HF_ENDPOINT HF_TOKEN HF_HUB_CACHE TORCH_HOME
-export HUGGINGFACE_HUB_CACHE="${HF_HUB_CACHE}"
-mkdir -p "${HF_HUB_CACHE}" "${TORCH_HOME}" "${PROJECT_ROOT}/logs" || true
+export HF_ENDPOINT="https://hf-mirror.com"
+export HF_TOKEN="${HF_TOKEN:-}"
+export HF_HUB_CACHE="${PROJECT_ROOT}/checkpoints/.cache"
+export TORCH_HOME="${PROJECT_ROOT}/checkpoints"
+mkdir -p "${HF_HUB_CACHE}" "${TORCH_HOME}" "${PROJECT_ROOT}/logs"
+export HF_HUB_OFFLINE=1
 
-if command -v conda >/dev/null 2>&1; then
-  # shellcheck disable=SC1090
-  source "$(conda info --base)/etc/profile.d/conda.sh" || true
-  if [[ -n "${CONDA_ENV:-}" ]]; then
-    conda activate "${CONDA_ENV}" || true
-  fi
-fi
+source "${CONDA_SH:-${HOME}/miniconda3/etc/profile.d/conda.sh}"
+conda activate segflood
 
-cd "${PROJECT_ROOT}"
-
-echo "================ WorldFloodsv2 run ================"
-echo " Channels: ${CHANNELS_KEY}"
-echo " Exp:      ${EXP}"
-echo " Exp name: ${EXP_NAME}"
+echo "================ WorldFloodsv2 运行 ================"
+echo " 通道:    ${CHANNELS_KEY}"
+echo " 实验:    ${EXP}"
+echo " EXP:     ${EXP}"
+echo " EXP_NAME:${EXP_NAME}"
 echo "==================================================="
 
 OVERRIDES=(
@@ -76,10 +59,10 @@ code=$?
 set -e
 
 if [ $code -ne 0 ]; then
-  echo "[RUN] FAILED (code=$code)" >&2
+  echo "[RUN] ❌ 失败 (code=$code)" >&2
   exit $code
 else
-  echo "[RUN] OK"
+  echo "[RUN] ✅ 成功结束"
 fi
 
 

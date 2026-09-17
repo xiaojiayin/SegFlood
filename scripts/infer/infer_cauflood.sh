@@ -9,59 +9,45 @@
 #SBATCH --gres=gpu:1
 #SBATCH --time=04:00:00
 
+PROJECT_ROOT="${PROJECT_ROOT:-$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null || pwd)}"
 set -euo pipefail
 
-echo "Job: ${SLURM_JOB_ID:-N/A}"
-echo "Start: $(date)"
+echo "🔧 设置环境..."
+export HF_ENDPOINT="https://hf-mirror.com"
+export HF_TOKEN="${HF_TOKEN:-}"  # set your Hugging Face token in the environment if gated weights are needed
+export HF_HUB_CACHE="${PROJECT_ROOT}/checkpoints/.cache"
+export TORCH_HOME="${PROJECT_ROOT}/checkpoints"
+export HUGGINGFACE_HUB_CACHE="$HF_HUB_CACHE"
 
-###############################################################################
-# Runtime configuration (override via env vars if needed)
-# - PROJECT_ROOT: repo root (default: inferred from this script location)
-# - CONDA_ENV: conda env name to activate (optional; otherwise activate before sbatch)
-# - HF_ENDPOINT / HF_TOKEN: Hugging Face settings (optional)
-# - HF_HUB_CACHE / TORCH_HOME: caches (optional; defaults under $PROJECT_ROOT/checkpoints)
-###############################################################################
+echo "作业ID: ${SLURM_JOB_ID:-N/A}"
+echo "开始时间: $(date)"
 
-# Repo root (infer from this script path)
-PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-export PROJECT_ROOT
-cd "${PROJECT_ROOT}"
+source "${CONDA_SH:-${HOME}/miniconda3/etc/profile.d/conda.sh}"
+conda activate segflood
+echo "Python: $(python --version)"
 
-LOG_ROOT="${PROJECT_ROOT}/logs"
-mkdir -p "${LOG_ROOT}" || true
-
-: "${HF_ENDPOINT:=}"
-: "${HF_TOKEN:=}"
-: "${HF_HUB_CACHE:=${PROJECT_ROOT}/checkpoints/.cache}"
-: "${TORCH_HOME:=${PROJECT_ROOT}/checkpoints}"
-export HF_ENDPOINT HF_TOKEN HF_HUB_CACHE TORCH_HOME
-export HUGGINGFACE_HUB_CACHE="${HF_HUB_CACHE}"
-mkdir -p "${HF_HUB_CACHE}" "${TORCH_HOME}" || true
-
-# Optional conda activation
-if command -v conda >/dev/null 2>&1; then
-  # shellcheck disable=SC1090
-  source "$(conda info --base)/etc/profile.d/conda.sh" || true
-  if [[ -n "${CONDA_ENV:-}" ]]; then
-    conda activate "${CONDA_ENV}" || true
-  fi
+# 进入项目根目录
+if [[ -n "${SLURM_SUBMIT_DIR:-}" && -d "${SLURM_SUBMIT_DIR}" ]]; then
+  PROJECT_ROOT="${SLURM_SUBMIT_DIR}"
+else
+  PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)" || PROJECT_ROOT="$PWD"
 fi
+cd "$PROJECT_ROOT" 2>/dev/null || true
 
-echo "Python: $(python --version 2>&1)"
+source "${CONDA_SH:-${HOME}/miniconda3/etc/profile.d/conda.sh}" || true
+conda activate segflood || true
 
-CKPT="${1:-}"
-DATA_ROOT="${2:-}"
+CKPT="${1:-${PROJECT_ROOT}/logs/resnet50_resnet50_cauflood_2025-11-12_13-41-34/checkpoints/water_iou_0.8248.ckpt}"
+DATA_ROOT="${2:-data/CAU-Flood}"
 OUT_DIR="${3:-scripts/infer/output/cauflood}"
 BS="${4:-128}"
 NW="${5:-8}"
 
-if [[ -z "${CKPT}" || -z "${DATA_ROOT}" ]]; then
-  echo "Usage: sbatch $0 <ckpt_path> <dataset_path> [out_dir] [batch_size] [num_workers]" >&2
-  exit 1
-fi
-
+# 输出根
 mkdir -p "$OUT_DIR"
 
+# 说明：默认禁用 AMP（混合精度）。原因：在该数据集上启用 AMP 会导致指标下降约 30 个百分点。
+# 如需实验性启用，可在下方 python 命令末尾手动追加 --amp。
 python scripts/infer/infer_cauflood.py \
   --checkpoint "$CKPT" \
   --dataset-path "$DATA_ROOT" \
@@ -71,6 +57,6 @@ python scripts/infer/infer_cauflood.py \
   --save-predictions \
   --save-format auto
 
-echo "Done. Output: $OUT_DIR"
+echo "✅ 完成：输出于 $OUT_DIR"
 
 

@@ -1,8 +1,6 @@
-﻿# @package _global_
+# @package _global_
 
-
-# Experiment overrides (Hydra).
-
+# KuroSiwo: EfficientNet-B4 单编码器（SAR-only）
 
 defaults:
   - override /data: kurosiwo

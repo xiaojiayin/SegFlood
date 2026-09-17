@@ -2,9 +2,9 @@
 """
 Minimal inference entry for WorldFloodsv2.
 
-Implementation notes:
-- Uses `Trainer.predict` + `WorldFloodsPredictWriter`
-- Writer handles sliding-window inference on full scenes, GeoTIFF saving, and metric aggregation
+改为 Lightning 最佳实践：
+- 使用 Trainer.predict + WorldFloodsPredictWriter
+- Writer 内部执行整图滑窗推理、保存 GeoTIFF 与汇总指标
 """
 
 import argparse
@@ -29,7 +29,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-dir", type=str, required=True, help="Output directory")
     p.add_argument("--num-workers", type=int, default=8)
     p.add_argument("--amp", action="store_true")
-    p.add_argument("--save-format", type=str, default="auto", help="Placeholder for script compatibility (Writer outputs GeoTIFF)")
+    p.add_argument("--save-format", type=str, default="auto", help="兼容脚本参数，占位用（Writer固定输出 GeoTIFF）")
     # WF2 data controls
     p.add_argument("--wf2-channels", type=str, default="bgri", help="Channels config name (e.g., rgb|bgr|bgri|bgriswirs|...)")
     p.add_argument("--wf2-water-values", type=str, default="2", help="Comma-separated mask values treated as water (binary=1). Default: '2'")
@@ -38,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--wf2-mean", type=float, nargs="*", default=None, help="Custom mean per-channel (disables official normalization unless flag is set)")
     p.add_argument("--wf2-std", type=float, nargs="*", default=None, help="Custom std per-channel (disables official normalization unless flag is set)")
     p.add_argument("--wf2-add-mndwi-input", action="store_true", help="Append MNDWI band computed from B3/B11 to inputs")
-    # Sliding window params (kept for DataModule context; Writer reads dm config internally)
+    # Sliding window params (kept for DataModule context; Writer内部读取dm配置)
     p.add_argument("--wf2-tile-size", type=int, default=1024)
     p.add_argument("--wf2-pad-size", type=int, default=32)
     p.add_argument("--wf2-multiple-of", type=int, default=8)
@@ -49,15 +49,13 @@ def main() -> None:
     args = parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # 1) Load model (strict load)
-    model = MultiModalSegmentationModule.load_from_checkpoint(
-        args.checkpoint, map_location="cpu", strict=True, weights_only=False
-    )
+    # 1) Load model（严格加载）
+    model = MultiModalSegmentationModule.load_from_checkpoint(args.checkpoint, map_location="cpu", strict=True)
     if torch.cuda.is_available():
         torch.backends.cudnn.benchmark = True
         model = model.cuda()
 
-    # 2) DataModule (full-scene inference)
+    # 2) DataModule（整图推理，官方标准化）
     water_vals = [int(x) for x in args.wf2_water_values.split(",") if x.strip()] if isinstance(args.wf2_water_values, str) else [2]
     ignore_vals = [int(x) for x in args.wf2_ignore_values.split(",") if x.strip()] if isinstance(args.wf2_ignore_values, str) else [3]
     off_norm = bool(args.wf2_official_normalization) or (args.wf2_mean is None and args.wf2_std is None)
@@ -78,7 +76,7 @@ def main() -> None:
         sliding_window={"multiple_of": 16},
     )
 
-    # 3) Lightning prediction (Writer handles sliding window, saving, and metrics)
+    # 3) Lightning 预测（Writer 内部完成整图滑窗、保存与指标）
     seed_everything(42, workers=True)
     precision = "16-mixed" if (args.amp and torch.cuda.is_available()) else "32-true"
     trainer = Trainer(
@@ -89,8 +87,7 @@ def main() -> None:
         enable_checkpointing=False,
         callbacks=[WorldFloodsPredictWriter(args.output_dir, save_predictions=True, amp=bool(args.amp))],
     )
-    # Model is already restored from `args.checkpoint` above; do NOT pass ckpt_path again.
-    trainer.predict(model=model, datamodule=dm)
+    trainer.predict(model=model, datamodule=dm, ckpt_path=args.checkpoint)
 
 
 if __name__ == "__main__":

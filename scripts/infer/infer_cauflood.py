@@ -30,10 +30,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
-    # Load model (strict load to match training)
-    model = MultiModalSegmentationModule.load_from_checkpoint(
-        args.checkpoint, map_location="cpu", strict=True, weights_only=False
-    )
+    # Load model（严格加载，确保完全对齐）
+    model = MultiModalSegmentationModule.load_from_checkpoint(args.checkpoint, map_location="cpu", strict=True)
     model.eval()
     if torch.cuda.is_available():
         model = model.cuda()
@@ -45,7 +43,7 @@ def main() -> None:
         modal_type="dual",
         root=args.dataset_path,
     )
-    # Lightning Trainer + Writer
+    # Lightning Trainer + Writer（最佳实践）
     seed_everything(42, workers=True)
     precision = "16-mixed" if (args.amp and torch.cuda.is_available()) else "32-true"
     trainer = Trainer(
@@ -56,8 +54,7 @@ def main() -> None:
         enable_checkpointing=False,
         callbacks=[CAUFloodPredictWriter(args.output_dir, args.save_predictions, args.save_format)],
     )
-    # Model is already restored from `args.checkpoint` above; do NOT pass ckpt_path again.
-    trainer.predict(model=model, datamodule=dm)
+    trainer.predict(model=model, datamodule=dm, ckpt_path=args.checkpoint)
 
 
 if __name__ == "__main__":

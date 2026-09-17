@@ -3,9 +3,9 @@
 tensorboard:
   _target_: lightning.pytorch.loggers.tensorboard.TensorBoardLogger
   save_dir: "${paths.log_dir}/tensorboard/"
-  # Use only `experiment_name` here; the timestamp is already included in `hydra.run.dir`.
+  # 仅使用 experiment_name；不再在 name 中追加时间戳，避免与 hydra.run.dir 的时间戳重复
   name: "${oc.env:EXPERIMENT_NAME,${experiment_name}}"
-  # Let TensorBoardLogger use `version/` to separate runs.
+  # 让 TensorBoardLogger 自动用 version 区分多次运行
   version: null
   log_graph: False
   default_hp_metric: True

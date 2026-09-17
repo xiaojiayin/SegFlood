@@ -1,0 +1,2 @@
+name,experiment,overrides,device,batch_size,image_size,total_params_m,trainable_params_m,flops_g,macs_g,operations_backend,peak_cuda_memory_mb,warmup_iters,latency_iters,avg_forward_ms
+jag26_prof_gf_dualconcat,resnet50_resnet50_gffloodnet,model.encoder.optical_channels=4 model.encoder.sar_channels=1 model.fusion.fusion_type=concat model.alignment_enabled=false model.alignment_target_weight=0.0,cuda,1,256,268.514,268.514,284.923,142.461,thop,1528.710,5,20,10.549

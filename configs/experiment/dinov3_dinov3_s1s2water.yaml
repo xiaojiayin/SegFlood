@@ -1,8 +1,6 @@
-﻿# @package _global_
+# @package _global_
 
-
-# Experiment overrides (Hydra).
-
+# S1S2-Water: DINOv3 双流（Optical+SAR）
 
 defaults:
   - override /data: s1s2_water
@@ -35,6 +33,7 @@ model:
     optical_channels: ${data.optical_channels}
     sar_channels: ${data.sar_channels}
     drop_path_rate: 0.2
+    # 开启浅层细节编码器（ViT 单尺度时补 2x/4x/8x）
     shallow_enabled: true
 
   fusion:
@@ -43,9 +42,10 @@ model:
     xattn_apply_levels: [-1, -2]
     xattn_reduction: 8
     xattn_gamma_init: 0.0
+    # 对齐偏置
     xattn_align_bias: true
     xattn_align_bias_scale: 1
-
+    
 
   decoder:
     _target_: src.models.decoders.UNetDecoder
@@ -71,6 +71,7 @@ model:
   learning_rate: 5e-4
   weight_decay: 1e-4
 
+  # 对齐正则（SigLIP PatchNCE）
   alignment_enabled: true
   alignment_target_weight: 0.05
   alignment_layers: [-1]
@@ -78,5 +79,6 @@ model:
   alignment_num_samples: 256
   alignment_patch_radius: 1
 
+  # 对齐项 EMA 限幅比例
   align_cap_ratio: 0.9
 

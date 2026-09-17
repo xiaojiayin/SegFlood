@@ -1,0 +1,6 @@
+variant	job_id	overrides
+inputconcat	502497	data.add_dem=false data.add_slope=false model.aux_loss_weight=0.0 model.alignment_enabled=false model.alignment_target_weight=0.0 +data.output_image_key=true model.encoder.optical_channels=6 model.encoder.sar_channels=0 model.encoder.sar_pretrained=false model.fusion.fusion_type=identity
+dualadd	502498	data.add_dem=false data.add_slope=false model.aux_loss_weight=0.0 model.alignment_enabled=false model.alignment_target_weight=0.0 model.encoder.optical_channels=4 model.encoder.sar_channels=2 model.fusion.fusion_type=canonical_add
+dualconcat	502499	data.add_dem=false data.add_slope=false model.aux_loss_weight=0.0 model.alignment_enabled=false model.alignment_target_weight=0.0 model.encoder.optical_channels=4 model.encoder.sar_channels=2 model.fusion.fusion_type=concat
+stdcross	502500	data.add_dem=false data.add_slope=false model.aux_loss_weight=0.0 model.alignment_enabled=false model.alignment_target_weight=0.0 model.encoder.optical_channels=4 model.encoder.sar_channels=2 model.fusion.fusion_type=canonical_cross
+gated	502501	data.add_dem=false data.add_slope=false model.aux_loss_weight=0.0 model.alignment_enabled=false model.alignment_target_weight=0.0 model.encoder.optical_channels=4 model.encoder.sar_channels=2 model.fusion.fusion_type=canonical_gated

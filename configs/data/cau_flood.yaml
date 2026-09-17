@@ -1,0 +1,58 @@
+# CAU-Flood DataModule 配置文件
+# 遵循 TorchGeo 标准，支持 Lightning + Hydra 集成
+# 通过配置驱动的方式实现灵活的数据增强策略
+
+# --- Hydra 实例化目标 ---
+_target_: src.data.datamodules.cau_flood.CAUFloodDataModule
+
+# --- 基础数据集配置 ---
+root: "${paths.data_dir}/CAU-Flood"
+batch_size: 64  # 基础批次大小，实验配置可覆盖
+num_workers: 4
+
+# --- 数据划分配置 ---
+val_split: 0.125  # 验证集比例 (1/8 = 0.125, 即7:1比例)
+random_seed: 42   # 随机种子，确保数据划分可重复
+
+# --- CAU-Flood通道配置 ---
+optical_channels: 4  # 灾前光学数据: Red, Green, Blue, NIR (4个波段)
+sar_channels: 1      # 灾后SAR数据: VV极化 (1个通道)
+
+# --- 模态配置 ---
+modal_type: "dual"  # 默认双模态，可在实验配置中覆盖为"optical"或"sar"
+eval_modal_mode: "dual"  # 评估阶段缺模态测试: dual | optical_only | sar_only
+
+# --- 数据增强配置 ---
+# 🎯 架构：几何变换通过data_keys同步，标准化在DataModule中处理
+train_transforms:
+  _target_: kornia.augmentation.AugmentationSequential
+  data_keys: ["input", "mask"]
+  same_on_batch: false
+  _args_:
+    
+    - _target_: kornia.augmentation.RandomHorizontalFlip
+      p: 0.5
+    
+    - _target_: kornia.augmentation.RandomVerticalFlip
+      p: 0.5
+    
+    - _target_: kornia.augmentation.RandomRotation
+      p: 0.2
+      degrees: 30.0
+    
+    - _target_: kornia.augmentation.RandomAffine
+      p: 0.2
+      degrees: 0.0  # 避免双重旋转
+      translate: [0.1, 0.1]
+      scale: [0.95, 1.05]
+
+# === 验证和测试数据增强配置 ===
+# 验证/测试阶段不应用随机增强，确保结果可复现
+val_transforms: null
+test_transforms: null
+
+# === 标准化配置 (DataModule统一处理) ===
+# 🎯 职责分离：Dataset只负责数据加载，DataModule负责标准化
+# 📊 使用CAU-Flood官方推荐的CMCDNet标准统计量
+normalization_mean: [123.675, 116.28, 103.53, 123.675, 120.0]
+normalization_std: [58.395, 57.12, 57.375, 58.395, 60.0]

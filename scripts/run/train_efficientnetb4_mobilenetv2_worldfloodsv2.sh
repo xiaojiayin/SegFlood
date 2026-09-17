@@ -9,61 +9,32 @@
 #SBATCH --gres=gpu:1
 #SBATCH --time=48:00:00
 
+PROJECT_ROOT="${PROJECT_ROOT:-$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null || pwd)}"
 set -euo pipefail
 
-# Usage:
+# 用法：
 #   sbatch scripts/run/train_efficientnetb4_mobilenetv2_worldfloodsv2.sh [channels_key] [lr]
-# Args:
-#   channels_key: rgb|bgr|bgri|riswir|bgriswir|bgriswirs|l89s2|sub_20|all (default: bgri)
-#   lr: learning rate (default: 5e-4)
+# 参数：
+#   channels_key: rgb|bgr|bgri|riswir|bgriswir|bgriswirs|l89s2|sub_20|all  默认 bgri
+#   lr: 学习率（可选，默认 5e-4）
 
 CHANNELS_KEY=${1:-bgri}
 LR=${2:-5e-4}
 
 BASE_EXPERIMENT="efficientnetb4_mobilenetv2_worldfloodsv2"
-
-###############################################################################
-# Runtime configuration (override via env vars if needed)
-# - PROJECT_ROOT: repo root (default: inferred from this script location)
-# - DATA_ROOT: WorldFloodsv2 dataset root (required)
-# - CONDA_ENV: conda env name to activate (optional; otherwise activate before sbatch)
-# - HF_ENDPOINT / HF_TOKEN: Hugging Face settings (optional)
-# - HF_HUB_CACHE / TORCH_HOME: caches (optional; defaults under $PROJECT_ROOT/checkpoints)
-###############################################################################
-
-# Repo root (infer from this script path)
-PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-export PROJECT_ROOT
-cd "${PROJECT_ROOT}"
-
-DATA_ROOT="${DATA_ROOT:-}"
-if [[ -z "${DATA_ROOT}" ]]; then
-  echo "Usage: sbatch $0 [channels_key] [lr]" >&2
-  echo "  and set DATA_ROOT=/path/to/WorldFloodsv2" >&2
-  exit 1
-fi
-
+DATA_ROOT="${PROJECT_ROOT}/data/WorldFloodsv2"
 LOG_ROOT="${PROJECT_ROOT}/logs"
-mkdir -p "${LOG_ROOT}" || true
+PROJECT_ROOT="${PROJECT_ROOT:-$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null || pwd)}"
+export HF_ENDPOINT="https://hf-mirror.com"
+export HF_TOKEN="${HF_TOKEN:-}"
+export HF_HUB_CACHE="${PROJECT_ROOT}/checkpoints/.cache"
+export TORCH_HOME="${PROJECT_ROOT}/checkpoints"
+mkdir -p "$HF_HUB_CACHE" "$LOG_ROOT"
 
-: "${HF_ENDPOINT:=}"
-: "${HF_TOKEN:=}"
-: "${HF_HUB_CACHE:=${PROJECT_ROOT}/checkpoints/.cache}"
-: "${TORCH_HOME:=${PROJECT_ROOT}/checkpoints}"
-export HF_ENDPOINT HF_TOKEN HF_HUB_CACHE TORCH_HOME
-export HUGGINGFACE_HUB_CACHE="${HF_HUB_CACHE}"
-mkdir -p "${HF_HUB_CACHE}" "${TORCH_HOME}" || true
+source "${CONDA_SH:-${HOME}/miniconda3/etc/profile.d/conda.sh}"
+conda activate segflood
 
-# Optional conda activation
-if command -v conda >/dev/null 2>&1; then
-  # shellcheck disable=SC1090
-  source "$(conda info --base)/etc/profile.d/conda.sh" || true
-  if [[ -n "${CONDA_ENV:-}" ]]; then
-    conda activate "${CONDA_ENV}" || true
-  fi
-fi
-
-echo "================ Run plan ================"
+echo "================ 运行计划 ================"
 echo "Modalities: optical"
 echo "Channels: ${CHANNELS_KEY}"
 echo "learning_rate: ${LR}"
@@ -72,7 +43,7 @@ echo "========================================="
 
 run_base="efficientnetb4_mobilenetv2_optical_${CHANNELS_KEY}_wf2"
 
-# Compute optical channel count from channels_key
+# 根据通道组合计算光学通道数
 case "$CHANNELS_KEY" in
   rgb) opt_ch=3 ;;
   bgr) opt_ch=3 ;;
@@ -83,12 +54,12 @@ case "$CHANNELS_KEY" in
   l89s2) opt_ch=8 ;;
   sub_20) opt_ch=10 ;;
   all) opt_ch=13 ;;
-  *) echo "[ERROR] Unsupported channels_key: $CHANNELS_KEY" >&2; exit 2 ;;
+  *) echo "不支持的 channels_key: $CHANNELS_KEY" >&2; exit 2 ;;
 esac
 sar_ch=0
 
-echo -e "\n>>> [RUN] mode=optical start: $(date)"
-echo "Channels: optical_channels=${opt_ch}, sar_channels=${sar_ch}"
+echo -e "\n>>> [RUN] mode=optical 开始时间: $(date)"
+echo "通道: optical_channels=${opt_ch}, sar_channels=${sar_ch}"
 
 set +e
 python src/train.py \
@@ -108,12 +79,12 @@ exit_code=$?
 set -e
 
 if [ $exit_code -ne 0 ]; then
-  echo "[RUN] mode=optical FAILED (code=$exit_code)" >&2
+  echo "[RUN] mode=optical ❌ 失败 (code=$exit_code) - 终止" >&2
   exit $exit_code
 else
-  echo "[RUN] mode=optical OK"
+  echo "[RUN] mode=optical ✅ 成功结束"
 fi
 
-echo "Training finished: $(date)"
+echo "训练完成: $(date)"
 
 

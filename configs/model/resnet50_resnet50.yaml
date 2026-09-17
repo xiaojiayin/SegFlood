@@ -1,41 +1,46 @@
-# ResNet50 baseline config (dual-stream encoder).
+# ResNet50 随机初始化模型配置
+# 实验组2：完全从头训练的基线
 
 _target_: src.models.lightning_module.MultiModalSegmentationModule
 
-# Encoder (dual-stream)
+# 双流编码器配置
 encoder:
   _target_: src.models.encoders.DualStreamEncoder
   model_name: "resnet50"
   
-  # Channels are taken from the selected `data` config.
+  # 通道配置由数据配置提供（通过Hydra插值）
   optical_channels: ${data.optical_channels}
   sar_channels: ${data.sar_channels}
   
-  # Pretraining policy
-  optical_pretrained: true
-  sar_pretrained: false
+  # 预训练策略：光学使用预训练，SAR使用随机初始化
+  optical_pretrained: true   # 光学：使用预训练权重
+  sar_pretrained: false      # SAR：随机初始化
 
-# Fusion
+# 特征融合配置
 fusion:
   _target_: src.models.fusion.FeatureFusion
   fusion_type: "concat"
 
-# Decoder
+# 解码器配置
 decoder:
   _target_: src.models.decoders.UNetDecoder
   num_classes: 2
 
-# Loss
+# 损失函数
 loss_fn:
   _target_: torch.nn.CrossEntropyLoss
   ignore_index: -1
 
-# Optimizer hparams (can be overridden by experiment configs)
+# 训练超参数
 learning_rate: 1e-4
 weight_decay: 1e-4
 num_classes: 2
 
-# LR scheduler (optional)
+# 对齐模式：proximity 保持历史邻域 PatchNCE 行为。
+# 可选 original | proximity | exclude_changed | disabled
+alignment_mode: proximity
+
+# 🔄 学习率调度器配置
 scheduler_config:
   _target_: torch.optim.lr_scheduler.CosineAnnealingLR
   T_max: 50

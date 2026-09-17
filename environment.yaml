@@ -1,0 +1,29 @@
+# reasons you might want to use `environment.yaml` instead of `requirements.txt`:
+# - pip installs packages in a loop, without ensuring dependencies across all packages
+#   are fulfilled simultaneously, but conda achieves proper dependency control across
+#   all packages
+# - conda allows for installing packages without requiring certain compilers or
+#   libraries to be available in the system, since it installs precompiled binaries
+
+name: segflood
+
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.11
+  - pytorch
+  - torchvision
+  - pytorch-lightning
+  - torchmetrics
+  - hydra-core
+  - rich
+  - pre-commit
+  - pytest
+  - pip
+  - pip:
+      - hydra-optuna-sweeper
+      - hydra-colorlog
+      - rootutils

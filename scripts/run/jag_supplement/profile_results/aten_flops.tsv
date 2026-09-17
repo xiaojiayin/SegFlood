@@ -1,0 +1,12 @@
+early_mobilenet	4.27	1.82
+early_efficientnet	18.04	5.67
+early_sam2	78.24	56.32
+early_dinov3	91.05	64.99
+early_resnet50	73.31	76.82
+canonical_cross	102.38	88.34
+canonical_add	96.81	87.19
+canonical_gated	107.96	91.75
+concat_mobilenet	14.86	5.96
+concat_efficientnet	39.61	14.76
+concat_sam2	139.22	106.32
+concat_dinov3	124.28	124.89

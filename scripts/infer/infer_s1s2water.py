@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-S1S2-Water inference on the test split and per-scene mosaic export (GeoTIFF).
+S1S2-Water 测试集推理并按场景拼接大图（GeoTIFF）。
 
-Implementation notes:
-- Uses `Trainer.predict` + `S1S2WaterPredictWriter`
-- Writer handles tile prediction saving and mosaic stitching
+改为 Lightning 最佳实践：
+- 使用 Trainer.predict + S1S2WaterPredictWriter
+- Writer 内部完成 tiles 预测保存与 mosaics 拼接
 """
 
 from __future__ import annotations
@@ -27,16 +27,16 @@ from src.infer.s1s2_water import S1S2WaterPredictWriter
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="S1S2-Water inference + mosaic export")
-    p.add_argument("--checkpoint", required=True, type=str, help="Checkpoint path (.ckpt)")
-    p.add_argument("--data-root", required=True, type=str, help="Dataset root (contains train/val/test)")
-    p.add_argument("--out-dir", required=True, type=str, help="Output directory")
-    p.add_argument("--modal-type", type=str, default=None, choices=["optical", "sar", "dual"], help="Optional override for modality")
+    p = argparse.ArgumentParser(description="S1S2-Water 推理并拼接场景大图")
+    p.add_argument("--checkpoint", required=True, type=str, help="模型权重 .ckpt")
+    p.add_argument("--data-root", required=True, type=str, help="数据根目录（包含 S1S2-Water/train|val|test）")
+    p.add_argument("--out-dir", required=True, type=str, help="输出目录")
+    p.add_argument("--modal-type", type=str, default=None, choices=["optical", "sar", "dual"], help="可选：覆盖模态类型")
     p.add_argument("--batch-size", type=int, default=128)
     p.add_argument("--num-workers", type=int, default=8)
-    p.add_argument("--amp", action="store_true", help="Enable autocast fp16 on CUDA")
-    p.add_argument("--add-dem", action="store_true", help="Append DEM channel on optical branch (must match training)")
-    p.add_argument("--add-slope", action="store_true", help="Append slope channel on optical branch (must match training)")
+    p.add_argument("--amp", action="store_true", help="CUDA 上启用 autocast fp16")
+    p.add_argument("--add-dem", action="store_true", help="是否在光学分支启用 DEM 通道（需与训练时一致）")
+    p.add_argument("--add-slope", action="store_true", help="是否在光学分支启用坡度通道（需与训练时一致）")
     return p.parse_args()
 
 
@@ -45,9 +45,7 @@ def main() -> None:
 
     os.makedirs(args.out_dir, exist_ok=True)
 
-    model = MultiModalSegmentationModule.load_from_checkpoint(
-        args.checkpoint, map_location="cpu", strict=True, weights_only=False
-    )
+    model = MultiModalSegmentationModule.load_from_checkpoint(args.checkpoint, map_location="cpu", strict=True)
     if torch.cuda.is_available():
         torch.backends.cudnn.benchmark = True
         model = model.cuda()
@@ -77,8 +75,7 @@ def main() -> None:
         enable_checkpointing=False,
         callbacks=[S1S2WaterPredictWriter(args.out_dir, save_predictions=True, modal_type=(args.modal_type or "dual"))],
     )
-    # Model is already restored from `args.checkpoint` above; do NOT pass ckpt_path again.
-    trainer.predict(model=model, datamodule=dm)
+    trainer.predict(model=model, datamodule=dm, ckpt_path=args.checkpoint)
 
 
 if __name__ == "__main__":

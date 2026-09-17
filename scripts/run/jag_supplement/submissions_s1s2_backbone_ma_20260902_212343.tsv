@@ -1,0 +1,4 @@
+variant	job_id	experiment	overrides
+jag26_s1s2bb_resnet50_ma_test_s42	505677	resnet50_resnet50_s1s2water	logs/jag26_alignfix_components_s1s2_gated_s42_2026-08-31_11-17-03/checkpoints/water_iou_0.9776.ckpt
+jag26_s1s2bb_resnet50_ma_test_s123	505678	resnet50_resnet50_s1s2water	logs/jag26_alignfix_components_s1s2_gated_s123_2026-08-31_11-17-05/checkpoints/water_iou_0.9756.ckpt
+jag26_s1s2bb_resnet50_ma_test_s2026	505679	resnet50_resnet50_s1s2water	logs/jag26_alignfix_components_s1s2_gated_s2026_2026-08-31_11-16-59/checkpoints/water_iou_0.9760.ckpt

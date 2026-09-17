@@ -11,10 +11,17 @@
 
 set -euo pipefail
 
-# Usage:
+# 用法：
 #   sbatch scripts/run/train_kurosiwo.sh <EXPERIMENT_NAME> [USE_DEM] [DEM_SCALE_MODE] [SCALE_INPUT] [USE_RATIO] [CLEAR_DB_STATS]
-# Notes:
-#   - USE_RATIO adds vh/vv as an extra channel (must match training config).
+# 说明：
+#   EXPERIMENT_NAME：使用已有实验配置名，例如
+#     dinov3_kurosiwo | resnet50_kurosiwo | efficientnetb4_kurosiwo | mobilenetv3_kurosiwo | sam2_kurosiwo
+#   USE_DEM        ∈ {true,false}，是否启用 DEM 早期融合（默认 false）
+#   DEM_SCALE_MODE ∈ {zscore,none}，DEM 归一化方式（默认 zscore）
+#   SCALE_INPUT    ：KuroSiwo 中 SAR 两个通道的标准化方式
+#                    可选：normalize, min-max, custom, log（默认 db 将在 configs/data/kurosiwo.yaml 中配置）
+#   USE_RATIO      ∈ {true,false}，是否在 SAR 中追加 vh/vv 比值通道（channels=["vv","vh","vh/vv"]，默认 false）
+#   CLEAR_DB_STATS ∈ {true,false}，当 SCALE_INPUT=db 且为 true 时，将 data_mean/data_std 置为 null（即使用“纯 dB”输入）
 
 EXP=${1:-dinov3_kurosiwo}
 USE_DEM=${2:-false}
@@ -22,64 +29,45 @@ DEM_SCALE_MODE=${3:-zscore}
 SCALE_INPUT=${4:-db}
 USE_RATIO=${5:-false}
 CLEAR_DB_STATS=${6:-false}
-# Extra Hydra overrides (optional, arg #7), e.g. change backbone names:
+# 额外的 Hydra 覆盖项（可选，第7个参数），例如修改主干模型名称：
 #   "model.encoder.optical_model_name=vit_small_patch16_dinov3 model.encoder.sar_model_name=vit_small_patch16_dinov3"
 EXTRA_OVERRIDES_STR=${7:-""}
 
-###############################################################################
-# Runtime configuration (override via env vars if needed)
-# - PROJECT_ROOT: repo root (default: inferred from this script location)
-# - DATA_ROOT_BASE: dataset base dir (default: $PROJECT_ROOT/data)
-# - DATA_ROOT_KURO: KuroSiwoGRD root (default: $DATA_ROOT_BASE/KuroSiwoGRD)
-# - CONDA_ENV: conda env name to activate (optional; otherwise activate before sbatch)
-# - HF_ENDPOINT / HF_TOKEN: Hugging Face settings (optional)
-# - HF_HUB_CACHE / TORCH_HOME: caches (optional; defaults under $PROJECT_ROOT/checkpoints)
-###############################################################################
+# 数据根（指向实际存放 KuroSiwoGRD 的目录，需包含 pickle 子目录）
+PROJECT_ROOT="${PROJECT_ROOT:-$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null || pwd)}"
+DATA_ROOT_KURO="${PROJECT_ROOT}/data/KuroSiwoGRD"
 
-PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-export PROJECT_ROOT
-
-DATA_ROOT_BASE="${DATA_ROOT_BASE:-${PROJECT_ROOT}/data}"
-DATA_ROOT_KURO="${DATA_ROOT_KURO:-${DATA_ROOT_BASE}/KuroSiwoGRD}"
-
-# Run name suffix (for TensorBoard grouping)
+# 记录名后缀（便于 TensorBoard 分组与日志对齐）
 SUF="dem-${USE_DEM}_demscale-${DEM_SCALE_MODE}_scale-${SCALE_INPUT}_ratio-${USE_RATIO}_cleardb-${CLEAR_DB_STATS}"
 EXP_NAME="${EXP}_${SUF}"
 
-: "${HF_ENDPOINT:=}"
-: "${HF_TOKEN:=}"
-: "${HF_HUB_CACHE:=${PROJECT_ROOT}/checkpoints/.cache}"
-: "${TORCH_HOME:=${PROJECT_ROOT}/checkpoints}"
-export HF_ENDPOINT HF_TOKEN HF_HUB_CACHE TORCH_HOME
-export HUGGINGFACE_HUB_CACHE="${HF_HUB_CACHE}"
-mkdir -p "${HF_HUB_CACHE}" "${TORCH_HOME}" "${PROJECT_ROOT}/logs" || true
+# 环境
+export HF_ENDPOINT="https://hf-mirror.com"
+export HF_TOKEN="${HF_TOKEN:-}"
+export HF_HUB_CACHE="${PROJECT_ROOT}/checkpoints/.cache"
+export TORCH_HOME="${PROJECT_ROOT}/checkpoints"
+mkdir -p "${HF_HUB_CACHE}" "${TORCH_HOME}" "${PROJECT_ROOT}/logs"
+export HF_HUB_OFFLINE=1
 
-if command -v conda >/dev/null 2>&1; then
-  # shellcheck disable=SC1090
-  source "$(conda info --base)/etc/profile.d/conda.sh" || true
-  if [[ -n "${CONDA_ENV:-}" ]]; then
-    conda activate "${CONDA_ENV}" || true
-  fi
-fi
+source "${CONDA_SH:-${HOME}/miniconda3/etc/profile.d/conda.sh}"
+conda activate segflood
 
-cd "${PROJECT_ROOT}"
-
-echo "================ KuroSiwo run ================"
+echo "================ KuroSiwo 实验 ================"
 echo " USE_DEM:        ${USE_DEM}"
 echo " DEM_SCALE_MODE: ${DEM_SCALE_MODE}  (zscore | none)"
 echo " SCALE_INPUT:    ${SCALE_INPUT}  (normalize | log | db | min-max | custom)"
-echo " USE_RATIO:      ${USE_RATIO}"
-echo " CLEAR_DB_STATS: ${CLEAR_DB_STATS}"
+echo " USE_RATIO:      ${USE_RATIO}  (是否追加 vh/vv 通道)"
+echo " CLEAR_DB_STATS: ${CLEAR_DB_STATS}  (仅当 SCALE_INPUT=db 时生效，为 true 表示使用纯 dB)"
 echo " EXP/YAML:       ${EXP}"
 echo " EXP_NAME:       ${EXP_NAME}"
 echo " data.root:      ${DATA_ROOT_KURO}"
 echo "================================================"
 
-# Hydra overrides
-# Dynamically compute SAR channel count:
-#   base: VV+VH => 2 channels
-#   +1 if USE_RATIO=true (vh/vv)
-#   +1 if USE_DEM=true   (DEM)
+# Hydra 覆盖
+# 依据 DEM 和 vh/vv 比值动态计算 SAR 通道数：
+#   基础:  VV+VH => 2 通道
+#   若 USE_RATIO=true 则追加 vh/vv => +1 通道
+#   若 USE_DEM=true  则追加 DEM   => +1 通道
 base_ch=2
 if [[ "${USE_RATIO}" == "true" ]]; then
   base_ch=$((base_ch + 1))
@@ -89,7 +77,7 @@ if [[ "${USE_DEM}" == "true" ]]; then
   sar_ch=$((sar_ch + 1))
 fi
 
-# SAR channel names (Dataset.channels)
+# SAR 通道名（Dataset 的 channels 参数）
 if [[ "${USE_RATIO}" == "true" ]]; then
   CHANNELS="[vv,vh,vh/vv]"
 else
@@ -108,19 +96,22 @@ OVERRIDES=(
   "experiment_name=${EXP_NAME}"
 )
 
-# If "pure dB" is requested, clear mean/std to avoid applying z-score in dB domain.
+# 当需要“纯 dB”输入时，清空均值/方差，避免在 dB 域再次做 Z-Score
 if [[ "${SCALE_INPUT}" == "db" && "${CLEAR_DB_STATS}" == "true" ]]; then
   OVERRIDES+=("data.data_mean=null")
   OVERRIDES+=("data.data_std=null")
 fi
 
-# Append user overrides (space-separated)
+# 追加用户指定的额外 Hydra 覆盖（用于更换主干等）
 if [[ -n "${EXTRA_OVERRIDES_STR}" ]]; then
+  # 按空格拆分为数组，每一项都是一个独立的 override
   read -r -a extra_arr <<< "${EXTRA_OVERRIDES_STR}"
   for item in "${extra_arr[@]}"; do
     OVERRIDES+=("${item}")
   done
 fi
+
+cd "${PROJECT_ROOT}"
 
 set +e
 python src/train.py "${OVERRIDES[@]}"
@@ -128,10 +119,10 @@ code=$?
 set -e
 
 if [ $code -ne 0 ]; then
-  echo "[RUN] FAILED (code=$code)" >&2
+  echo "[RUN] ❌ 失败 (code=$code)" >&2
   exit $code
 else
-  echo "[RUN] OK"
+  echo "[RUN] ✅ 成功结束"
 fi
 
 

@@ -7,13 +7,13 @@ defaults:
 
 # output directory, generated dynamically on each run
 run:
-  # Keep a single timestamp in the Hydra run directory name (loggers should not duplicate it).
+  # 统一只在外层 hydra 目录增加一次时间戳，内部 logger 不再重复
   dir: ${paths.log_dir}/${oc.env:EXPERIMENT_NAME,${experiment_name}}_${now:%Y-%m-%d_%H-%M-%S}
 sweep:
   dir: ${paths.log_dir}/${oc.env:EXPERIMENT_NAME,${experiment_name}}_multiruns_${now:%Y-%m-%d_%H-%M-%S}
   subdir: ${hydra.job.num}
 
-# Disable Hydra's extra log file handlers (keep console output only).
+# 禁用额外的日志文件
 job_logging:
   disable_existing_loggers: false
   handlers: {}

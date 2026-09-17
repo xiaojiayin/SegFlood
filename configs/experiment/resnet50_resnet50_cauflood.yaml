@@ -1,8 +1,6 @@
 # @package _global_
 
-
-# Experiment overrides (Hydra).
-
+# CAU-Flood ResNet50 双流基线（命名统一）
 
 defaults:
   - override /data: cau_flood
@@ -11,43 +9,54 @@ defaults:
   - override /logger: tensorboard
   - override /trainer: gpu
 
+# 实验标识
 tags: ["dual_modal", "resnet50", "cauflood"]
 seed: 42
 experiment_name: "resnet50_resnet50_cauflood"
 
+# 数据配置
 data:
   modal_type: "dual"
   batch_size: 128
   num_workers: 8
 
+# 训练配置
 trainer:
   max_epochs: 100
   check_val_every_n_epoch: 1
   precision: "bf16-mixed"
 
+# 日志配置
 logger:
   tensorboard:
     save_dir: "${paths.log_dir}/tensorboard"
     name: "${experiment_name}"
     version: null
 
+# 模型配置
 model:
   encoder:
     optical_channels: ${data.optical_channels}
     sar_channels: ${data.sar_channels}
-    drop_path_rate: 0.1
+    drop_path_rate: 0.1                      # 小数据集+中等模型
 
+  # 跨模态注意力融合配置（双流实验标配）
   fusion:
     _target_: src.models.fusion.FeatureFusion
-    fusion_type: "xattn"
+    fusion_type: "xattn"                    # 跨模态注意力融合；可改为 concat|add|gated|se|cbam|xattn
+    # 按层启用 (末两层: -1,-2)，你可以扩展到更深 [-1,-2,-3] 做多层交互
     xattn_apply_levels: [-1, -2]
-    xattn_reduction: 8
-    xattn_gamma_init: 0.0
+    xattn_reduction: 8                      # 注意力瓶颈缩减比 (越大越省算力)
+    xattn_gamma_init: 0.0                   # 残差缩放初值 (0 表示从纯注意力输出开始)
+    # 仍保留其它策略参数以便快速切换（当前不会用到 se/cbam）
+    se_apply_levels: [-1, -2, -3]
+    cbam_apply_levels: [-1, -2]
+    # 统一投影归一化（add/gated/xattn 使用）
     projection_norm: gn
 
   decoder:
-    dropout: 0.0
-    up_mode: "bilinear"
+    dropout: 0.0                             # 小数据集：关闭解码器dropout
+    up_mode: "bilinear"                      # 标准双线性插值
 
   loss_fn:
     _target_: segmentation_models_pytorch.losses.FocalLoss
@@ -56,15 +65,16 @@ model:
     gamma: 2.0
     reduction: "mean"
     _convert_: all
-
+  
   aux_loss_fn:
     _target_: segmentation_models_pytorch.losses.DiceLoss
     mode: "multiclass"
     from_logits: true
     smooth: 1e-6
     _convert_: all
-
+  
   aux_loss_weight: 0.3
   learning_rate: 5e-4
   weight_decay: 1e-4
 
+  # 变化检测数据集：关闭特征级重建

@@ -1,47 +1,120 @@
-# Hybrid backbone config: EfficientNet-B4 (optical) + MobileNetV3 (SAR).
+# 混合模型配置：光学EfficientNet-B4 + SAR MobileNetV2
+# 实验组：不同模态使用不同架构，参数量适中的性能平衡组合
 
 _target_: src.models.lightning_module.MultiModalSegmentationModule
 
-# Encoder (dual-stream)
+# 双流编码器配置
 encoder:
   _target_: src.models.encoders.DualStreamEncoder
-  model_name: "resnet50"  # placeholder (overridden by per-stream backbones)
+  model_name: "resnet50"  # 默认模型名（会被覆盖）
   
-  # Optical backbone (EfficientNet)
+  # === 光学模型：EfficientNet家族 ===
+  # EfficientNet专为移动设备优化，在准确性和效率间取得平衡
+  # 所有版本都输出5层特征，降采样倍率: [2, 4, 8, 16, 32]
   optical_model_name: "efficientnet_b4"     
   
-  # SAR backbone (MobileNet)
+  # EfficientNet可选版本 (参数量 | 特征通道):
+  # - efficientnet_b0 (3.6M)  | [16, 24, 40, 112, 320]  # 最轻量版本
+  # - efficientnet_b1 (6.1M)  | [16, 24, 40, 112, 320]  # 轻量版本
+  # - efficientnet_b2 (7.2M)  | [16, 24, 48, 120, 352]  # 
+  # - efficientnet_b3 (10.1M) | [24, 32, 48, 136, 384]  # 
+  # - efficientnet_b4 (16.7M) | [24, 32, 56, 160, 448]  # 平衡版本 
+  # - efficientnet_b5 (27.3M) | [24, 40, 64, 176, 512]  # 中等版本
+  # - efficientnet_b6 (39.4M) | [32, 40, 72, 200, 576]  # 大型版本
+  # - efficientnet_b7 (62.1M) | [32, 48, 80, 224, 640]  # 最大版本
+  
+  # === SAR模型：MobileNet家族 ===
+  # MobileNet专为移动设备设计，极度轻量高效
+  # 所有版本都输出5层特征，降采样倍率: [2, 4, 8, 16, 32]
   sar_model_name: "mobilenetv3_large_100"         
-
-  # Channels are taken from the selected `data` config.
+  
+  # MobileNetV2可选版本 (参数量 | 特征通道):
+  # - mobilenetv2_050 (0.5M)  | [8, 16, 16, 48, 160]    # 超轻量版本  
+  # - mobilenetv2_075 (1.0M)  | [16, 24, 24, 72, 240]   # 轻量版本
+  # - mobilenetv2_100 (1.8M)  | [16, 24, 32, 96, 320]   # 标准版本
+  # - mobilenetv2_140 (3.5M)  | [24, 32, 48, 136, 448]  # 增强版本
+  #
+  # MobileNetV3可选版本 (参数量 | 特征通道):
+  # - mobilenetv3_small_050 (0.3M) | [16, 8, 16, 24, 288]   # 超小版本
+  # - mobilenetv3_small_075 (0.6M) | [16, 16, 24, 40, 432]  # 小版本
+  # - mobilenetv3_small_100 (0.9M) | [16, 16, 24, 48, 576]  # 小标准版本
+  # - mobilenetv3_large_075 (1.8M) | [16, 24, 32, 88, 720]  # 大轻量版本
+  # - mobilenetv3_large_100 (3.0M) | [16, 24, 40, 112, 960] # 大标准版本
+  
+  # 通道配置由数据配置提供（通过Hydra插值）
   optical_channels: ${data.optical_channels}
   sar_channels: ${data.sar_channels}
   
-  # Pretraining policy
-  optical_pretrained: true
-  sar_pretrained: false
+  # 预训练策略：光学使用预训练，SAR随机初始化
+  optical_pretrained: true   # 光学使用预训练
+  sar_pretrained: false      # SAR随机初始化
 
-# Fusion
+# 特征融合配置
 fusion:
   _target_: src.models.fusion.FeatureFusion
-  fusion_type: "concat"
+  # feature_channels将由encoder动态提供
+  fusion_type: "concat"     # 融合策略选择
+  
+  # === 可选的融合策略 (fusion_type可选值) ===
+  # 1. "concat" - 特征拼接（当前使用）
+  #    - 将光学和SAR特征在通道维度拼接
+  #    - 简单有效，保留所有特征信息
+  #    - 计算复杂度：线性增长
+  #    - 适用场景：特征互补性强的多模态数据
+  #
+  # 2. "add" - 特征相加
+  #    - 对应位置的特征进行逐元素相加
+  #    - 要求光学和SAR特征维度相同
+  #    - 计算复杂度：最低
+  #    - 适用场景：特征语义相似度高
+  #
+  # 3. "attention" - 注意力融合（需实现）
+  #    - 学习权重动态融合特征
+  #    - 能自适应选择重要特征
+  #    - 计算复杂度：最高但效果最好
+  #    - 适用场景：特征重要性变化大的场景
 
-# Decoder
+# 解码器配置
 decoder:
   _target_: src.models.decoders.UNetDecoder
+  # feature_channels将由encoder动态提供
   num_classes: 2
 
-# Loss
+# 损失函数
 loss_fn:
   _target_: torch.nn.CrossEntropyLoss
   ignore_index: -1
 
-# Optimizer hparams (can be overridden by experiments)
-learning_rate: 5e-4
-weight_decay: 1e-4
+# 训练超参数：EfficientNet + MobileNet混合架构优化配置  
+learning_rate: 5e-4     # 中等学习率，适合混合架构
+weight_decay: 1e-4      # 适中权重衰减
 num_classes: 2
 
-# LR scheduler (optional)
+# 对齐模式：proximity 保持历史邻域 PatchNCE 行为。
+# 可选 original | proximity | exclude_changed | disabled
+alignment_mode: proximity
+
+# === 当前组合特点 ===
+# 总参数量: ~18.5M (EfficientNet-B4: 16.7M + MobileNetV2: 1.8M)
+# 特征通道: 光学[24,32,56,160,448] + SAR[16,24,32,96,320]
+# 架构优势:
+# - EfficientNet-B4: 优秀的图像特征提取能力，预训练效果好
+# - MobileNetV2: 轻量高效，适合SAR单通道处理
+# - 参数量平衡: 比ResNet50双流(270M)轻15倍，性能损失有限
+# - 计算效率: 推理速度快，适合实际部署
+
+# === 超参数调优建议 ===
+# EfficientNet系列推荐设置:
+# - 学习率: 1e-4 到 1e-3 之间 (比ResNet略高)
+# - 权重衰减: 1e-4 到 1e-3
+# - 批量大小: 可以设置更大(内存占用少)
+#
+# MobileNet系列推荐设置:  
+# - 学习率: 1e-3 到 5e-3 之间 (轻量模型需要更高学习率)
+# - 权重衰减: 1e-4 到 5e-4
+# - 批量归一化: 重要性更高
+
+# 学习率调度器配置
 scheduler_config:
   _target_: torch.optim.lr_scheduler.CosineAnnealingLR
   T_max: 50

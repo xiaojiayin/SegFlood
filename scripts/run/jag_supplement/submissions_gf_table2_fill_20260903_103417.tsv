@@ -1,0 +1,7 @@
+variant	job_id	kind	detail
+sam2_dualconcat	506718	train	experiment_name=jag26_gft2_sam2_dualconcat_s42 seed=42 test=true trainer.min_epochs=50 model.encoder.optical_channels=4 model.encoder.sar_channels=1 model.encoder.optical_pretrained=true model.encoder.sar_pretrained=false model.fusion.fusion_type=concat model.aux_loss_weight=0.0 model.alignment_enabled=false model.alignment_target_weight=0.0
+sam2_ma	506719	train	experiment_name=jag26_gft2_sam2_ma_s42 seed=42 test=true trainer.min_epochs=50 model.encoder.optical_channels=4 model.encoder.sar_channels=1 model.encoder.optical_pretrained=true model.encoder.sar_pretrained=false model.fusion.fusion_type=xattn +model.fusion.xattn_components=spatial+channel +model.fusion.xattn_component_fusion=gated model.fusion.xattn_align_bias=false model.alignment_enabled=false model.alignment_target_weight=0.0
+mobilenet_dualconcat	506720	test	logs/jag26_alignfix_gf_homogeneous_minep_gf_mobilenet_dualconcat_s42_2026-09-02_13-49-07/checkpoints/water_iou_0.9520.ckpt
+mobilenet_ma	506721	test	logs/jag26_alignfix_gf_homogeneous_minep_gf_mobilenet_ma_s42_2026-09-02_13-49-07/checkpoints/water_iou_0.9473.ckpt
+efficientnet_dualconcat	506722	test	logs/jag26_alignfix_gf_homogeneous_minep_gf_efficientnet_dualconcat_s42_2026-09-02_13-49-07/checkpoints/water_iou_0.9667.ckpt
+efficientnet_ma	506723	test	logs/jag26_alignfix_gf_homogeneous_minep_gf_efficientnet_ma_s42_2026-09-02_13-49-07/checkpoints/water_iou_0.9615.ckpt

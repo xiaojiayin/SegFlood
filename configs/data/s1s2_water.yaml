@@ -1,0 +1,72 @@
+# Hydra config for S1S2-Water unified tiles DataModule
+#
+# 简化设计：使用 modal_type + add_dem/add_slope 控制
+# DEM/SLOPE 总是添加到光学分支后面
+# 不再使用归一化
+
+_target_: src.data.datamodules.s1s2_water.S1S2WaterDataModule
+
+# 指向统一 tiles 根目录 (包含 train/val/test 子目录)
+root: ${paths.data_dir}/S1S2-Water
+
+# 输入模态: optical | sar | dual
+modal_type: dual
+eval_modal_mode: dual  # 评估阶段缺模态测试: dual | optical_only | sar_only
+
+# 地形数据控制（添加到光学分支）
+add_dem: false
+add_slope: false
+
+# 通道数（将由脚本动态覆盖）
+optical_channels: 4  # RGB+NIR基础
+sar_channels: 2      # VV+VH固定
+
+# DataLoader
+batch_size: 128
+num_workers: 8
+
+# === 几何增强 ===
+train_transforms:
+  _target_: kornia.augmentation.AugmentationSequential
+  same_on_batch: false
+  _args_:
+    - _target_: kornia.augmentation.RandomHorizontalFlip
+      p: 0.5
+    - _target_: kornia.augmentation.RandomVerticalFlip
+      p: 0.5
+    - _target_: kornia.augmentation.RandomRotation
+      p: 0.25
+      degrees: 30.0
+      resample: "nearest"
+    - _target_: kornia.augmentation.RandomAffine
+      p: 0.2
+      degrees: 0.0
+      translate: [0.1, 0.1]
+      scale: [0.95, 1.05]
+      resample: "nearest"
+
+val_transforms: null
+test_transforms: null
+
+# === 数值增强 ===
+# 光学增强：仅对 RGB+NIR 前4个通道
+optical_value_transforms:
+  _target_: kornia.augmentation.AugmentationSequential
+  same_on_batch: false
+  _args_:
+    - _target_: kornia.augmentation.ColorJitter
+      p: 0.6
+      brightness: 0.15
+      contrast: 0.15
+      saturation: 0.2
+      hue: 0.1
+    - _target_: kornia.augmentation.RandomGamma
+      p: 0.3
+      gamma: [0.9, 1.1]
+
+sar_value_transforms: null
+
+# SAR散斑噪声：仅对 VV/VH
+enable_sar_speckle: true
+sar_speckle_sigma_range: [0.03, 0.10]
+sar_speckle_prob: 0.5

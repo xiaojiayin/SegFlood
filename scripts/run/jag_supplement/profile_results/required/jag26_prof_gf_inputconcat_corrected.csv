@@ -1,0 +1,2 @@
+name,experiment,overrides,device,batch_size,image_size,total_params_m,trainable_params_m,flops_g,macs_g,operations_backend,peak_cuda_memory_mb,warmup_iters,latency_iters,avg_forward_ms
+jag26_prof_gf_inputconcat_corrected,resnet50_early_fusion_gffloodnet,model.fusion.fusion_type=add,cuda,1,256,95.691,95.691,81.502,40.751,thop,510.627,5,20,5.623

@@ -1,8 +1,7 @@
-﻿# @package _global_
+# @package _global_
 
-
-# Experiment overrides (Hydra).
-
+# timm 混合模型实验：光学EfficientNet-B4 + SAR MobileNetV3
+# 不同模态使用不同架构
 
 defaults:
   - override /data: cau_flood
@@ -11,43 +10,51 @@ defaults:
   - override /logger: tensorboard
   - override /trainer: gpu
 
+# 实验标识
 tags: ["dual_modal", "efficientnet_b4", "mobilenetv3", "cauflood"]
 seed: 42
 experiment_name: "efficientnetb4_mobilenetv3_cauflood"
 
+# 数据配置
 data:
   modal_type: "dual"
   batch_size: 128
   num_workers: 8
 
+# 训练配置
 trainer:
   max_epochs: 100
   check_val_every_n_epoch: 1
   precision: "bf16-mixed"
 
+# 日志配置
 logger:
   tensorboard:
     save_dir: "${paths.log_dir}/tensorboard"
     name: "${experiment_name}"
     version: null
+# 模型配置
 model:
   encoder:
     optical_channels: ${data.optical_channels}
     sar_channels: ${data.sar_channels}
     sar_pretrained: false
-    drop_path_rate: 0.0
-
+    drop_path_rate: 0.0                      # 关闭随机深度
+  
+  # 跨模态注意力融合配置（双流实验标配）
   fusion:
     _target_: src.models.fusion.FeatureFusion
-    fusion_type: "xattn"
+    fusion_type: "xattn"                    # 跨模态注意力融合；可改为 concat|add|gated|se|cbam|xattn
+    # 按层启用 (末两层: -1,-2)，你可以扩展到更深 [-1,-2,-3] 做多层交互
     xattn_apply_levels: [-1, -2]
-    xattn_reduction: 8
-    xattn_gamma_init: 0.0
+    xattn_reduction: 8                      # 注意力瓶颈缩减比 (越大越省算力)
+    xattn_gamma_init: 0.0                   # 残差缩放初值 (0 表示从纯注意力输出开始)
 
 
+  # 解码器正则 (轻量模型关闭)
   decoder:
-    dropout: 0.0
-    up_mode: "bilinear"
+    dropout: 0.0                             # 关闭解码器dropout
+    up_mode: "bilinear"                      # 与基线一致
 
 
   loss_fn:
@@ -57,15 +64,16 @@ model:
     gamma: 2.0
     reduction: "mean"
     _convert_: all
-
+  
   aux_loss_fn:
     _target_: segmentation_models_pytorch.losses.DiceLoss
     mode: "multiclass"
     from_logits: true
     smooth: 1e-6
     _convert_: all
-
+  
   aux_loss_weight: 0.3
   learning_rate: 5e-4
   weight_decay: 1e-4
 
+  # 变化检测数据集：关闭特征级重建

@@ -12,19 +12,14 @@ from lightning.pytorch.callbacks import Callback  # type: ignore
 
 class GFFloodNetPredictWriter(Callback):
     """
-    Prediction writer + evaluator driven by `Trainer.predict`.
-
-    Outputs:
-    - predictions/ (GeoTIFF and/or PNG)
-    - overall_metrics.xlsx, detailed_samples.xlsx
-
-    Contract: `pl_module.predict_step` should return either:
-    - a dict containing {"main_logits": ..., "preds": ...}, or
-    - a logits tensor directly (then preds are derived via argmax).
+    基于 Trainer.predict 的落盘与评估：
+    - 写出 predictions/（GeoTIFF 或 PNG）
+    - 写出 overall_metrics.xlsx 与 detailed_samples.xlsx
+    依赖于 pl_module.predict_step 返回 {"main_logits":..., "preds":...}
     """
 
     def __init__(self, output_dir: str, save_predictions: bool, save_format: str = "auto",
-                 dataset_root: Optional[str] = None, mosaic_enabled: bool = True) -> None:
+                 dataset_root: Optional[str] = None, mosaic_enabled: bool = True, mosaic_alpha: float = 0.5) -> None:
         super().__init__()
         self.output_dir = output_dir
         self.save_predictions = bool(save_predictions)
@@ -39,6 +34,7 @@ class GFFloodNetPredictWriter(Callback):
         self._ds = None  # dataset reference
         self.dataset_root = dataset_root
         self.mosaic_enabled = bool(mosaic_enabled)
+        self.mosaic_alpha = float(mosaic_alpha)
 
     def setup(self, trainer, pl_module, stage: str) -> None:
         os.makedirs(self.output_dir, exist_ok=True)
@@ -46,13 +42,13 @@ class GFFloodNetPredictWriter(Callback):
             os.makedirs(self.preds_dir, exist_ok=True)
 
     def on_predict_start(self, trainer, pl_module) -> None:
-        # Keep a dataset reference for filename resolution and GeoTIFF profile.
+        # 记录数据集引用以供文件名与GeoTIFF profile
         dm = getattr(trainer, "datamodule", None)
         if dm is not None:
-            # Prefer the full predict dataset (when datamodule uses predict_use_full).
+            # 优先使用 predict_use_full 时构建的完整数据集
             if hasattr(dm, "predict_dataset") and getattr(dm, "predict_dataset", None) is not None:
                 self._ds = dm.predict_dataset
-            # Otherwise fall back to the test split (consistent with evaluation).
+            # 否则退回到 test split（与评估口径一致）
             elif hasattr(dm, "test_dataset") and getattr(dm, "test_dataset", None) is not None:
                 self._ds = dm.test_dataset
         self.rows.clear()
@@ -63,7 +59,7 @@ class GFFloodNetPredictWriter(Callback):
         ref_path = None
         name = f"sample_{global_idx:06d}"
         ds = self._ds
-        # Handle Subset wrapper produced by random_split().
+        # 优先处理 Subset 包装（random_split 产生）
         if ds is not None and hasattr(ds, "dataset") and hasattr(ds, "indices"):
             base = getattr(ds, "dataset", None)
             idxs = getattr(ds, "indices", None)
@@ -74,18 +70,18 @@ class GFFloodNetPredictWriter(Callback):
                     ref_path = files[orig]
                     name = os.path.splitext(os.path.basename(ref_path))[0]
                     return name, ref_path
-        # Direct dataset (no Subset)
+        # 直接数据集（无 Subset）
         if ds is not None and hasattr(ds, "files"):
             files = getattr(ds, "files", None)
             if isinstance(files, list) and 0 <= global_idx < len(files):
                 ref_path = files[global_idx]
                 name = os.path.splitext(os.path.basename(ref_path))[0]
                 return name, ref_path
-        # Fail fast if we cannot resolve a stable filename from the dataset.
-        raise RuntimeError("GF-FloodNet: failed to resolve sample name and reference path from the dataset.")
+        # 未能解析样本名：按需求直接报错终止
+        raise RuntimeError("GF-FloodNet: 无法解析样本名称与参考路径（禁止使用默认 sample_XXXXXX 命名）。")
 
     def _save_pred(self, pred_2d: torch.Tensor, name: str, ref_path: Optional[str]) -> None:
-        # Binary mask convention: land=0 (black), water/flood=255 (red)
+        # 二值掩码：陆地=0(黑)，洪水=255(红色显示)
         m = ((pred_2d.detach().cpu() > 0).to(torch.uint8) * 255)
         if (self.save_format in ("auto", "tif", "both")) and ref_path is not None:
             tif_path = os.path.join(self.preds_dir, f"{name}.tif")
@@ -102,7 +98,7 @@ class GFFloodNetPredictWriter(Callback):
             })
             with rio.open(tif_path, "w", **profile) as dst:
                 dst.write(m.numpy(), 1)
-                # Colormap: 0=black (land), 255=red (water), 3=gray (ignore/nodata)
+                # 统一调色板：0=黑(陆地), 255=红(水体), 3=灰(无效/忽略)
                 try:
                     dst.write_colormap(1, {
                         0: (0, 0, 0, 255),
@@ -111,29 +107,28 @@ class GFFloodNetPredictWriter(Callback):
                     })
                 except Exception:
                     pass
-            # In "auto" mode, write only GeoTIFF (no extra PNG).
+            # auto 默认仅写 TIF，不再额外写 PNG
             if self.save_format in ("tif", "auto"):
                 return
         if (self.save_format in ("png", "both")) and (ref_path is None or self.save_format != "tif"):
             from PIL import Image  # lazy
             png_path = os.path.join(self.preds_dir, f"{name}.png")
-            # m is already uint8 in {0,255}; do not multiply again.
-            Image.fromarray(m.numpy(), mode="L").save(png_path)
+            Image.fromarray((m * 255).numpy()).save(png_path)
 
     def on_predict_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx: int = 0) -> None:
         logits = outputs.get("main_logits") if isinstance(outputs, dict) else outputs
-        assert isinstance(logits, torch.Tensor), "`predict_step` must return a dict containing 'main_logits' or a logits tensor"
+        assert isinstance(logits, torch.Tensor), "predict_step 必须返回包含 'main_logits' 的字典或张量"
         masks = batch.get("mask")
         if isinstance(masks, torch.Tensor) and logits.shape[2:] != masks.shape[1:]:
             logits = F.interpolate(logits, size=masks.shape[1:], mode="bilinear", align_corners=False)
         preds = outputs.get("preds") if isinstance(outputs, dict) else torch.argmax(logits, dim=1)
-        assert isinstance(preds, torch.Tensor), "`predict_step` must return 'preds' or allow deriving preds from logits"
+        assert isinstance(preds, torch.Tensor), "predict_step 必须返回 'preds' 或可从 logits 计算得到"
         bs = preds.shape[0]
         for i in range(bs):
             global_idx = self.sample_counter + i
             name, ref_path = self._get_sample_name_and_ref(global_idx)
             pred_i = preds[i]
-            assert isinstance(masks, torch.Tensor), "Missing 'mask' in batch; cannot compute metrics"
+            assert isinstance(masks, torch.Tensor), "batch 中缺少 'mask'，无法计算指标"
             mask_i = masks[i]
             p = pred_i.detach().flatten()
             g = mask_i.detach().flatten()
@@ -172,7 +167,7 @@ class GFFloodNetPredictWriter(Callback):
             acc_v = ((tp + tn) / denom_all) if denom_all > 0 else 0.0
             bg_false_alarm_rate = (fp / (fp + tn)) if (fp + tn) > 0 else 0.0
             flood_miss_rate = 1.0 - recall_v
-            # Aliases for backwards-compatible metric names.
+            # 同义指标，保持与历史口径相同
             bg_recall = specificity_v
             flood_recall = recall_v
             bg_specificity = specificity_v
@@ -224,7 +219,7 @@ class GFFloodNetPredictWriter(Callback):
         f1_v = (2 * precision_v * recall_v / (precision_v + recall_v)) if (precision_v + recall_v) > 0 else 0.0
         bg_false_alarm_rate = self.total_fp / (self.total_fp + self.total_tn) if (self.total_fp + self.total_tn) > 0 else 0.0
         flood_miss_rate = 1.0 - recall_v
-        # Aliases for backwards-compatible metric names.
+        # 同义指标
         bg_recall = specificity_v
         flood_recall = recall_v
         bg_specificity = specificity_v
@@ -249,12 +244,12 @@ class GFFloodNetPredictWriter(Callback):
         detailed_path = os.path.join(self.output_dir, "detailed_samples.xlsx")
         pd.DataFrame([overall]).to_excel(overall_path, index=False)
         pd.DataFrame(self.rows).to_excel(detailed_path, index=False)
-        # Print a blank line before paths (keeps logs readable next to tqdm output).
+        # 与 tqdm 分隔，打印前先换行
         print()
         print(f"[INFO] Overall metrics saved: {overall_path}")
         print(f"[INFO] Per-sample metrics saved: {detailed_path}")
 
-        # Optional: generate event-level mosaics and metrics after prediction finishes.
+        # 可选：在推理结束时生成事件级大图与事件级指标（整图马赛克）
         if self.mosaic_enabled and self.dataset_root is not None and self.save_predictions:
             try:
                 images_dir = os.path.join(self.dataset_root, "images")
@@ -268,6 +263,7 @@ class GFFloodNetPredictWriter(Callback):
                     predictions_dir=preds_dir,
                     output_dir=out_dir,
                     detailed_file=detailed_file,
+                    alpha=self.mosaic_alpha,
                 )
                 print(f"[INFO] Event-level mosaics & metrics saved under: {out_dir}")
             except Exception as e:
@@ -330,8 +326,8 @@ def _write_tif(path: str, arr: np.ndarray, profile: dict, dtype: str | None = No
 
 
 def _process_event(event_key: str, images_dir: str, annotations_dir: str, predictions_dir: str,
-                   output_dir: str) -> None:
-    # Use predicted tiles as the reference set, then match GT tiles to avoid including missing regions.
+                   output_dir: str, alpha: float) -> None:
+    # 以「有预测的 tiles」为基准，再去匹配对应的 GT tiles，避免包含没有预测的区域
     pr_paths = _filter_by_event(sorted(
         [os.path.join(predictions_dir, p) for p in os.listdir(predictions_dir) if p.endswith(".tif")]), event_key)
     if not pr_paths:
@@ -349,8 +345,8 @@ def _process_event(event_key: str, images_dir: str, annotations_dir: str, predic
     gt_arr, gt_prof = _mosaic(gt_paths)
     pr_arr, pr_prof = _mosaic(pr_paths)
 
-    # Only output mask-like products directly related to inference: GT mosaic and Pred mosaic.
-    # Keep GT uint8 raw semantics for downstream visualization scripts.
+    # 仅输出与推理结果直接相关的掩码类结果：GT 大图与 Pred 大图
+    # GT uint8（保持原语义：0=invalid, 1=water, 255=background，方便可视化脚本直接使用）
     gt_raw = gt_arr[0].astype(np.uint8)
     valid = (gt_raw != 0)
     gt_bin = ((gt_raw == 1) & valid).astype(np.uint8)[None, ...]
@@ -360,7 +356,7 @@ def _process_event(event_key: str, images_dir: str, annotations_dir: str, predic
     pred_bin = (pr_arr[0] > 0).astype(np.uint8)[None, ...]
     _write_tif(os.path.join(output_dir, event_key, "pred.tif"), pred_bin, pr_prof, dtype="uint8", count=1, nodata=0)
 
-    # Event-level mosaic metrics (crop to the shared region to avoid size mismatch).
+    # 7) event-level mosaic metrics（同样裁剪到公共区域，避免尺寸不一致）
     gt_ev = gt_bin[0].astype(np.uint8)
     pdm_ev = pred_bin[0].astype(np.uint8)
     h_gt, w_gt = gt_ev.shape
@@ -396,13 +392,14 @@ def _generate_gffloodnet_mosaics(
     predictions_dir: str,
     output_dir: str,
     detailed_file: Optional[str],
+    alpha: float,
 ) -> None:
     if not (os.path.isdir(images_dir) and os.path.isdir(annotations_dir) and os.path.isdir(predictions_dir)):
         return
 
     keys = _list_event_keys(images_dir)
     for k in keys:
-        _process_event(k, images_dir, annotations_dir, predictions_dir, output_dir)
+        _process_event(k, images_dir, annotations_dir, predictions_dir, output_dir, alpha)
 
     # event-level metrics based on mosaic (metrics.csv per event)
     rows2: List[Dict[str, Any]] = []
@@ -417,7 +414,7 @@ def _generate_gffloodnet_mosaics(
         os.makedirs(output_dir, exist_ok=True)
         out_df2.to_excel(os.path.join(output_dir, "event_metrics_mosaic.xlsx"), index=False)
 
-    # Optional: aggregate per-tile metrics into per-event metrics from detailed_samples.xlsx
+    # 可选：基于 detailed_samples.xlsx 聚合为事件级 tiles 指标
     if detailed_file and os.path.isfile(detailed_file):
         df = pd.read_excel(detailed_file)
         if "sample_name" in df.columns:

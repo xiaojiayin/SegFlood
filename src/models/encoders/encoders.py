@@ -1,16 +1,35 @@
-"""Encoder utilities and a dual-stream encoder for optical/SAR backbones (timm)."""
+"""
+编码器模块（Encoders）：多模态特征提取的标准化实现
+
+职责
+- 创建光学与 SAR 两路编码器
+- 导出按层的通道宽度与降采样倍率（feature_channels/reductions）
+
+特性
+- 通过 `timm.create_model(features_only=True, in_chans=...)` 创建编码器
+- 从 `feature_info` 读取元数据；在缺失时做一次轻量前向探测
+- 按降采样倍率进行“语义对齐”（reductions-driven alignment）
+
+建议
+- 避免硬编码层索引；优先用 feature_info.channels()/reduction()
+- 对齐时选择“参考分支”为层数更少的一侧（若相等默认 optical）
+"""
 
 from typing import Dict, List, Optional, Tuple
 import torch
 import torch.nn as nn
 import logging
 
-from .feature_meta import probe_timm_feature_meta, match_out_indices_by_reduction
+from .feature_meta import (
+    probe_timm_feature_meta,
+    probe_timm_default_out_indices,
+    match_out_indices_by_reduction,
+)
 from .shallow import ShallowDetailEncoder
 
 logger = logging.getLogger(__name__)
 
-# Internal constants
+# 内部常量
 _DEFAULT_FEATURE_SIZE = (256, 256)
 
 
@@ -21,14 +40,28 @@ def create_encoder(
     name: str = "encoder",
     out_indices: Optional[Tuple[int, ...]] = None,
     output_stride: Optional[int] = None,
-    drop_path_rate: Optional[float] = None,  # stochastic depth
+    drop_path_rate: Optional[float] = None,  # 仅保留这一项：stochastic depth
     pretrained_cfg_overlay: Optional[dict] = None,
 ) -> nn.Module:
-    """Create a timm backbone with features_only=True and attach feature meta."""
+    """
+    创建编码器，使用timm库，features_only=True；只透传drop_path_rate
+    
+    Args:
+        model_name: 模型架构名称
+        in_channels: 输入通道数  
+        pretrained: 是否使用预训练
+        name: 编码器名称
+        out_indices: 指定输出层级（None为默认）
+        output_stride: 输出步长（仅支持部分CNN架构）
+        drop_path_rate: stochastic depth率（所有模型支持，推荐0.1-0.3）
+        
+    Returns:
+        配置好的编码器，附带feature_channels和feature_reductions属性
+    """
     try:
         import timm
     except ImportError:
-        raise ImportError("timm is required. Please install it (pip install timm).")
+        raise ImportError("需要安装timm: pip install timm")
 
     kwargs = dict(
         pretrained=pretrained,
@@ -41,27 +74,27 @@ def create_encoder(
         kwargs["output_stride"] = output_stride
     if drop_path_rate is not None:
         kwargs["drop_path_rate"] = float(drop_path_rate)
-    # If a local checkpoint is provided, load from it and disable remote pretrained fetch.
+    # 若显式提供本地权重文件，则优先使用 checkpoint_path 进行本地加载，并避免走 Hub
     overlay_file: Optional[str] = None
     if isinstance(pretrained_cfg_overlay, dict):
         overlay_file = pretrained_cfg_overlay.get("file")  # type: ignore[assignment]
         if overlay_file:
-            # Load from local checkpoint_path and disable pretrained remote fetch.
+            # 使用本地 checkpoint_path，并关闭预训练远程拉取
             kwargs["checkpoint_path"] = overlay_file
             kwargs["pretrained"] = False
         else:
-            # Keep other overlay keys if needed.
+            # 保留其它 overlay 键（如确有需要）
             kwargs["pretrained_cfg_overlay"] = dict(pretrained_cfg_overlay)
 
     try:
         model = timm.create_model(model_name, **kwargs)
-        level_desc = f"{len(out_indices)} levels" if out_indices is not None else "default levels"
+        level_desc = f"{len(out_indices)}层" if out_indices is not None else "默认层级"
         logger.info(
-            f"{name} created ({level_desc}): {model_name}, in_chans={in_channels}, "
+            f"{name}创建成功({level_desc}): {model_name}, in_chans={in_channels}, "
             f"drop_path_rate={kwargs.get('drop_path_rate')}"
         )
     except Exception as e:
-        # Fallback only when out_indices/output_stride are unsupported; otherwise re-raise.
+        # 精准回退：仅当为层级/stride 参数不被支持时才移除并重试，否则抛出
         msg = str(e).lower()
         is_param_issue = isinstance(e, (TypeError, ValueError)) and (
             ("out_indices" in msg) or ("output_stride" in msg)
@@ -71,27 +104,26 @@ def create_encoder(
         for k in ("output_stride", "out_indices"):
             if k in kwargs:
                 kwargs.pop(k)
-        logger.info(f"{name}: out_indices/output_stride unsupported; retry without them: {e}")
+        logger.info(f"{name} 层级/stride 参数不被支持，已移除并回退创建: {e}")
         model = timm.create_model(model_name, **kwargs)
         logger.info(
-            f"{name} created (after fallback): {model_name}, in_chans={in_channels}, "
+            f"{name}创建成功(回退后): {model_name}, in_chans={in_channels}, "
             f"drop_path_rate={kwargs.get('drop_path_rate')}"
         )
 
-    # Attach channel and reduction metadata.
+    # 填充通道与降采样信息
     model.feature_channels = _get_feature_channels(model, model_name, in_channels)
     model.feature_reductions = _get_feature_reductions(model, model_name, in_channels)
 
-    logger.info(
-        f"{name} encoder: {model_name}, in_chans={in_channels}, "
-        f"channels={model.feature_channels}, reductions={model.feature_reductions}"
-    )
+    logger.info(f"{name}编码器: {model_name}, 通道{in_channels}, 特征{model.feature_channels}, 降采样{model.feature_reductions}")
     return model
 
 
 def _get_feature_channels(encoder: nn.Module, model_name: str, in_channels: int) -> List[int]:
-    """Get per-level channel widths (prefer feature_info, else run a small forward probe)."""
-    # 1) Prefer feature_info (most reliable).
+    """
+    获取特征通道数（优先feature_info，失败则前向验证，都失败则fail fast）
+    """
+    # 1) feature_info优先 - 最可靠
     if hasattr(encoder, "feature_info"):
         try:
             ch = list(encoder.feature_info.channels())
@@ -100,7 +132,7 @@ def _get_feature_channels(encoder: nn.Module, model_name: str, in_channels: int)
         except Exception:
             pass
 
-    # 2) Fallback: forward probe.
+    # 2) 前向验证备选 - 实际测试
     was_training = encoder.training
     try:
         try:
@@ -117,12 +149,15 @@ def _get_feature_channels(encoder: nn.Module, model_name: str, in_channels: int)
         if was_training:
             encoder.train()
 
-    raise RuntimeError(f"Failed to infer feature channels for {model_name} (features_only must be usable).")
+    # 3) 都失败则抛出异常（fail fast原则）
+    raise RuntimeError(f"无法获取模型 {model_name} 的特征通道信息（features_only 必须可用）")
 
 
 def _get_feature_reductions(encoder: nn.Module, model_name: str, in_channels: int) -> List[int]:
-    """Get per-level spatial reductions (prefer feature_info, else estimate from a forward probe)."""
-    # 1) Prefer feature_info.
+    """
+    获取特征降采样倍率（优先feature_info，失败则前向估计）
+    """
+    # 1) feature_info优先
     if hasattr(encoder, "feature_info"):
         try:
             rd = list(encoder.feature_info.reduction())
@@ -131,7 +166,7 @@ def _get_feature_reductions(encoder: nn.Module, model_name: str, in_channels: in
         except Exception:
             pass
 
-    # 2) Fallback: estimate from output spatial sizes.
+    # 2) 兜底：用一次前向估计（基于高度）
     was_training = encoder.training
     try:
         try:
@@ -151,19 +186,25 @@ def _get_feature_reductions(encoder: nn.Module, model_name: str, in_channels: in
                     r = max(1, round(H / h))
                     rds.append(r)
                 else:
-                    logger.warning(f"Unexpected feature shape: {f.shape}; fallback reduction=16")
-                    rds.append(16)
+                    # 可能是ViT序列输出，需要特殊处理
+                    logger.warning(f"特征形状异常: {f.shape}，可能需要reshape为2D")
+                    rds.append(16)  # 默认值
             return rds
     finally:
         if was_training:
             encoder.train()
     
-    raise RuntimeError(f"Failed to infer feature reductions for {model_name} (features_only must be usable).")
+    raise RuntimeError(f"无法获取模型 {model_name} 的降采样信息（features_only 必须可用）")
 
 
 class DualStreamEncoder(nn.Module):
     """
-    Dual-stream encoder that aligns feature pyramid levels by spatial reduction.
+    双流编码器（按 reduction 智能对齐）
+    
+    特性：
+    - 参考流：自动选择层数更少的一侧以减少无用计算
+    - 保存每条流的 channels/reductions 以及对齐后的 reductions，供下游解码器使用
+    - 智能对齐：按reduction语义对齐，避免无意义插值
     """
     
     def __init__(
@@ -175,10 +216,10 @@ class DualStreamEncoder(nn.Module):
         sar_channels: int = 1,
         optical_pretrained: bool = True,
         sar_pretrained: bool = True,
-        output_stride: Optional[int] = None,  # optional (CNN-only)
-        drop_path_rate: Optional[float] = None,  # optional (forwarded to timm)
+        output_stride: Optional[int] = None,  # 可选，对 CNN 有效
+        drop_path_rate: Optional[float] = None,  # 可选：透传到各自的timm骨干
         pretrained_cfg_overlay: Optional[dict] = None,
-        # For single-scale backbones (e.g., ViT/DINOv3), optionally add shallow 4x/8x details.
+        # 仅当主干为单尺度（例如 ViT/DINOv3）时，启用浅层细节编码器补充 4x/8x
         shallow_enabled: bool = False,
         shallow_norm: str = "bn",
         shallow_c2: int = 64,
@@ -192,46 +233,47 @@ class DualStreamEncoder(nn.Module):
         optical_model = optical_model_name if optical_model_name else model_name
         sar_model = sar_model_name if sar_model_name else model_name
 
-        # Probe feature meta (cached; no pretrained weights).
+        # 轻量探测（不加载权重，带缓存）
         probe_opt_ch, probe_opt_rd = self._probe_if_needed(optical_model, optical_channels)
         probe_sar_ch, probe_sar_rd = self._probe_if_needed(sar_model, sar_channels)
 
-        # Choose reference stream: fewer levels wins (tie -> optical).
+        # 选择参考流：谁层数少选谁（若相等，默认 optical）
         len_opt = len(probe_opt_ch) if probe_opt_ch else 1e9
         len_sar = len(probe_sar_ch) if probe_sar_ch else 1e9
-        # Reference stream used for alignment.
+        # 参考分支：选择层数更少的一侧作为对齐参考（若相等，默认 optical）
         ref_stream = "sar" if len_sar < len_opt else "optical"
-        logger.info(
-            f"reference_stream={ref_stream} (optical_levels={len_opt if len_opt<1e9 else 0}, "
-            f"sar_levels={len_sar if len_sar<1e9 else 0})"
-        )
+        logger.info(f"参考分支: {ref_stream} (optical:{len_opt if len_opt<1e9 else 0}层, sar:{len_sar if len_sar<1e9 else 0}层)")
 
-        # Build encoders
+        # 创建编码器
         self.encoder_optical = None
         self.encoder_sar = None
         self.shallow_opt = None
         self.shallow_sar = None
         
         if ref_stream == "optical":
-            # Optical is the reference stream
+            # 光学为参考流
             if optical_channels > 0:
                 self.encoder_optical = create_encoder(
                     model_name=optical_model,
                     in_channels=optical_channels,
                     pretrained=optical_pretrained,
                     name="optical",
-                    out_indices=None,  # keep default levels for reference stream
+                    out_indices=None,  # 参考流保留默认层级
                     output_stride=output_stride,
                     drop_path_rate=drop_path_rate,
                     pretrained_cfg_overlay=pretrained_cfg_overlay,
                 )
             
-            # Align the other stream by reduction.
+            # 目标流对齐
             sar_out_indices = None
             if sar_channels > 0 and probe_opt_rd and probe_sar_rd:
                 ref_rd = self.encoder_optical.feature_reductions
-                sar_out_indices = match_out_indices_by_reduction(ref_rd, probe_sar_rd)
-                logger.info(f"SAR aligned out_indices={sar_out_indices} (ref={ref_rd}, cand={probe_sar_rd})")
+                sar_default_idx = probe_timm_default_out_indices(sar_model, sar_channels)
+                sar_out_indices = match_out_indices_by_reduction(ref_rd, probe_sar_rd, sar_default_idx)
+                logger.info(
+                    f"SAR 按 reduction 对齐 indices: {sar_out_indices if sar_out_indices is not None else '默认层级'} "
+                    f"(参考:{ref_rd}, 候选:{probe_sar_rd}, 候选默认out_indices:{sar_default_idx})"
+                )
             
             if sar_channels > 0:
                 self.encoder_sar = create_encoder(
@@ -245,7 +287,7 @@ class DualStreamEncoder(nn.Module):
                     pretrained_cfg_overlay=pretrained_cfg_overlay,
                 )
         else:
-            # SAR is the reference stream
+            # SAR为参考流
             if sar_channels > 0:
                 self.encoder_sar = create_encoder(
                     model_name=sar_model,
@@ -261,8 +303,12 @@ class DualStreamEncoder(nn.Module):
             optical_out_indices = None
             if optical_channels > 0 and probe_opt_rd and probe_sar_rd:
                 ref_rd = self.encoder_sar.feature_reductions
-                optical_out_indices = match_out_indices_by_reduction(ref_rd, probe_opt_rd)
-                logger.info(f"Optical aligned out_indices={optical_out_indices} (ref={ref_rd}, cand={probe_opt_rd})")
+                opt_default_idx = probe_timm_default_out_indices(optical_model, optical_channels)
+                optical_out_indices = match_out_indices_by_reduction(ref_rd, probe_opt_rd, opt_default_idx)
+                logger.info(
+                    f"Optical 按 reduction 对齐 indices: {optical_out_indices if optical_out_indices is not None else '默认层级'} "
+                    f"(参考:{ref_rd}, 候选:{probe_opt_rd}, 候选默认out_indices:{opt_default_idx})"
+                )
             
             if optical_channels > 0:
                 self.encoder_optical = create_encoder(
@@ -276,13 +322,13 @@ class DualStreamEncoder(nn.Module):
                     pretrained_cfg_overlay=pretrained_cfg_overlay,
                 )
 
-        # Save per-stream channel/reduction meta
+        # 保存每条流的通道与降采样
         self.optical_feature_channels = getattr(self.encoder_optical, "feature_channels", [])
         self.sar_feature_channels = getattr(self.encoder_sar, "feature_channels", [])
         self.optical_feature_reductions = getattr(self.encoder_optical, "feature_reductions", [])
         self.sar_feature_reductions = getattr(self.encoder_sar, "feature_reductions", [])
 
-        # If enabled and backbone is single-scale, prepend shallow 2/4/8 reductions.
+        # 若启用浅层细节编码器且主干为单尺度（通常 reductions 仅含 [16] 或长度为1），则补齐 4x/8x
         def _maybe_build_shallow(channels: int, name: str):
             nonlocal shallow_c2, shallow_c4, shallow_c8
             return ShallowDetailEncoder(channels, shallow_c2, shallow_c4, shallow_c8, norm=shallow_norm)
@@ -294,34 +340,28 @@ class DualStreamEncoder(nn.Module):
                 except Exception:
                     return False
 
-            # optical: treat as single-scale if all reductions are identical
+            # optical：若所有层的 reduction 相同（如 [16,16,16]），视为单尺度
             if self.encoder_optical is not None and _is_single_scale(self.optical_feature_reductions):
                 self.shallow_opt = _maybe_build_shallow(optical_channels, "opt")
-                # Compose [2,4,8] from shallow and keep the deepest from the backbone.
+                # 组合为 2/4/8 来自 shallow，16 来自主干
                 self.optical_feature_channels = [shallow_c2, shallow_c4, shallow_c8] + (self.optical_feature_channels[-1:] or [])
                 self.optical_feature_reductions = [2, 4, 8] + (self.optical_feature_reductions[-1:] or [16])
-                logger.info(
-                    f"shallow_enabled(optical): c2={shallow_c2}, c4={shallow_c4}, c8={shallow_c8}; "
-                    f"levels=[2,4,8,16]"
-                )
+                logger.info(f"启用浅层细节编码器(optical): c2={shallow_c2}, c4={shallow_c4}, c8={shallow_c8}; 输出层级=[2,4,8,16]")
             # sar
             if self.encoder_sar is not None and (_is_single_scale(self.sar_feature_reductions) or len(self.sar_feature_reductions) <= 2):
                 self.shallow_sar = _maybe_build_shallow(sar_channels, "sar")
                 self.sar_feature_channels = [shallow_c2, shallow_c4, shallow_c8] + (self.sar_feature_channels[-1:] or [])
                 self.sar_feature_reductions = [2, 4, 8] + (self.sar_feature_reductions[-1:] or [16])
-                logger.info(
-                    f"shallow_enabled(sar): c2={shallow_c2}, c4={shallow_c4}, c8={shallow_c8}; "
-                    f"levels=[2,4,8,16]"
-                )
+                logger.info(f"启用浅层细节编码器(sar): c2={shallow_c2}, c4={shallow_c4}, c8={shallow_c8}; 输出层级=[2,4,8,16]")
 
-        # Align to the shortest length and keep reductions from the reference stream.
+        # 对齐长度（按最短），并保存对齐后的 reductions（取参考流的前 n 个）
         if self.encoder_optical and self.encoder_sar:
             n = min(len(self.optical_feature_channels), len(self.sar_feature_channels))
             self.optical_feature_channels = self.optical_feature_channels[:n]
             self.sar_feature_channels = self.sar_feature_channels[:n]
             self.feature_channels = [o + s for o, s in zip(self.optical_feature_channels, self.sar_feature_channels)]
 
-            # reductions: take from reference stream
+            # reductions：优先参考流
             ref_rd = self.optical_feature_reductions if ref_stream == "optical" else self.sar_feature_reductions
             self.feature_reductions = ref_rd[:n]
         elif self.encoder_optical:
@@ -331,21 +371,22 @@ class DualStreamEncoder(nn.Module):
             self.feature_channels = self.sar_feature_channels
             self.feature_reductions = self.sar_feature_reductions
         else:
-            raise RuntimeError("At least one encoder stream must be enabled.")
+            raise RuntimeError("至少需要一个有效的编码器")
 
-        logger.info(f"encoder_meta: channels={self.feature_channels}, reductions={self.feature_reductions}")
-        logger.info(f"dual_stream_ready: optical={optical_channels}ch({optical_model}), sar={sar_channels}ch({sar_model})")
+        # 日志：输出对齐后的关键信息，便于下游构建解码器
+        logger.info(f"编码器元数据: channels={self.feature_channels}, reductions={self.feature_reductions}")
+        logger.info(f"双路编码器就绪: optical={optical_channels}ch({optical_model}), sar={sar_channels}ch({sar_model})")
 
     def _probe_if_needed(self, model_name: str, channels: int) -> Tuple[List[int], List[int]]:
-        """Probe feature meta (cached)."""
+        """探测模型meta（如果需要，带缓存）"""
         return probe_timm_feature_meta(model_name, channels, out_indices=None) if channels > 0 else ([], [])
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, List[torch.Tensor]]:
-        """Forward (supports single-modal and dual-modal inputs)."""
+        """前向推理，支持单模态和双模态输入"""
         result = {"optical": [], "sar": []}
         
         if 'image' in batch:
-            # Single-modal input
+            # 单模态输入
             x = batch['image']
             if self.encoder_optical is not None:
                 feats = list(self.encoder_optical(x))
@@ -361,7 +402,7 @@ class DualStreamEncoder(nn.Module):
                 result["sar"] = feats[:len(self.feature_channels)]
             return result
 
-        # Dual-modal input
+        # 双模态输入
         if 'image_optical' in batch and self.encoder_optical is not None:
             x_opt = batch['image_optical']
             feats = list(self.encoder_optical(x_opt))

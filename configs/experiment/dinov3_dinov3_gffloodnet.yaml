@@ -1,8 +1,6 @@
-﻿# @package _global_
+# @package _global_
 
-
-# Experiment overrides (Hydra).
-
+# GF-FloodNet: DINOv3 双流（Optical+SAR）
 
 defaults:
   - override /data: gf_floodnet
@@ -35,6 +33,7 @@ model:
     optical_channels: ${data.optical_channels}
     sar_channels: ${data.sar_channels}
     drop_path_rate: 0.2
+    # 显式开启浅层细节编码器（主干为ViT时补充2x/4x/8x特征）
     shallow_enabled: true
 
   fusion:
@@ -43,9 +42,10 @@ model:
     xattn_apply_levels: [-1, -2]
     xattn_reduction: 8
     xattn_gamma_init: 0.0
+    # MA-XAttn: 对齐偏置（无损）
     xattn_align_bias: true
     xattn_align_bias_scale: 1
-
+    
 
   decoder:
     _target_: src.models.decoders.UNetDecoder
@@ -71,12 +71,14 @@ model:
   learning_rate: 5e-4
   weight_decay: 1e-4
 
-  alignment_enabled: true
-  alignment_target_weight: 0.05
-  alignment_layers: [-1]
-  alignment_temperature: 0.08
-  alignment_num_samples: 256
-  alignment_patch_radius: 1
+  # 对齐正则：PatchNCE（r 邻域多正样本）
+  alignment_enabled: true                 # 开启对齐正则
+  alignment_target_weight: 0.05           # 权重（可先 0.02→0.05 暖启动）
+  alignment_layers: [-1]              # 在两层同时对齐
+  alignment_temperature: 0.08             # 温度 τ（0.07～0.1）
+  alignment_num_samples: 256              # 采样位置 K（稳定些）
+  alignment_patch_radius: 1               # PatchNCE 半径 r=1(3x3)
 
+  # 对齐项 EMA 限幅比例
   align_cap_ratio: 0.3
 

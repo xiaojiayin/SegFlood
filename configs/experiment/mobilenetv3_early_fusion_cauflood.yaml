@@ -1,8 +1,7 @@
-﻿# @package _global_
+# @package _global_
 
-
-# Experiment overrides (Hydra).
-
+# 早期融合 baseline 实验：MobileNetV3-Large-100 单编码器
+# CAU-Flood 数据集版本
 
 defaults:
   - override /data: cau_flood
@@ -36,6 +35,7 @@ model:
   encoder:
     optical_model_name: "mobilenetv3_large_100"
     optical_pretrained: false
+    # 早期融合：RGBNIR(4)+SAR(1)=5
     optical_channels: 5
     sar_model_name: null
     sar_pretrained: false
@@ -46,7 +46,7 @@ model:
     fusion_type: "concat"
 
   decoder:
-    dropout: 0.0
+    dropout: 0.0                        # 小数据集：关闭dropout
     up_mode: "bilinear"
 
   loss_fn:

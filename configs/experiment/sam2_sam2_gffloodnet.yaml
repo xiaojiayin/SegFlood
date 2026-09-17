@@ -1,8 +1,6 @@
-﻿# @package _global_
+# @package _global_
 
-
-# Experiment overrides (Hydra).
-
+# GF-FloodNet SAM2+SAM2 混合模型实验（Optical: Base+, SAR: Small）
 
 defaults:
   - override /data: gf_floodnet
@@ -11,26 +9,31 @@ defaults:
   - override /logger: tensorboard
   - override /trainer: gpu
 
+# 实验标识
 tags: ["dual_modal", "sam2", "sam2", "gffloodnet"]
 seed: 42
 experiment_name: "sam2_sam2_gffloodnet"
 
+# 数据配置
 data:
   modal_type: "dual"
   batch_size: 128
   num_workers: 8
 
+# 训练配置
 trainer:
   max_epochs: 100
   check_val_every_n_epoch: 1
   precision: "bf16-mixed"
 
+# 日志配置
 logger:
   tensorboard:
     save_dir: "${paths.log_dir}/tensorboard"
     name: "${experiment_name}"
     version: null
 
+# 模型配置覆写
 model:
   encoder:
     optical_channels: ${data.optical_channels}
@@ -44,14 +47,14 @@ model:
     gamma: 2.0
     reduction: "mean"
     _convert_: all
-
+  
   aux_loss_fn:
     _target_: segmentation_models_pytorch.losses.DiceLoss
     mode: "multiclass"
     from_logits: true
     smooth: 1e-6
     _convert_: all
-
+  
   aux_loss_weight: 0.3
   learning_rate: 5e-4
   weight_decay: 1e-4
@@ -59,6 +62,7 @@ model:
   decoder:
     dropout: 0.1
 
+  # 融合策略覆写：启用对齐偏置
   fusion:
     _target_: src.models.fusion.FeatureFusion
     fusion_type: "xattn"
@@ -69,12 +73,14 @@ model:
     xattn_align_bias_scale: 1.0
 
 
+  # 对齐正则（SigLIP PatchNCE）：仅最深层，K=256，τ=0.08
   alignment_enabled: true
   alignment_target_weight: 0.05
   alignment_layers: [-1]
   alignment_temperature: 0.08
   alignment_num_samples: 256
   alignment_patch_radius: 1
+  # EMA 限幅比例（防止对齐项主导）
   align_cap_ratio: 0.3
 
-
+  

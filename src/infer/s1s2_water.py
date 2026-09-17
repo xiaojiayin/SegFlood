@@ -11,11 +11,9 @@ from lightning.pytorch.callbacks import Callback  # type: ignore
 
 class S1S2WaterPredictWriter(Callback):
     """
-    Prediction writer for S1S2-Water.
-
-    - Save per-tile predictions to predictions/ (GeoTIFF with georeference; values in {0,255})
-    - Record metrics (per-sample rows + overall summary)
-    - At the end, automatically mosaic tiles into mosaics/ based on the `sampleN_` prefix
+    - 保存 tiles 预测到 predictions/（GeoTIFF，保持地理参考；值 0/255）
+    - 记录完整指标（行级与汇总）
+    - 结束时按 sampleN_ 前缀自动拼接 mosaics/
     """
     def __init__(self, output_dir: str, save_predictions: bool, modal_type: str = "dual") -> None:
         super().__init__()
@@ -48,10 +46,10 @@ class S1S2WaterPredictWriter(Callback):
 
     def _get_ref(self, global_idx: int) -> Tuple[str, str]:
         if self._ds is None:
-            raise RuntimeError("S1S2-Water: missing test_dataset")
+            raise RuntimeError("S1S2-Water: 缺少 test_dataset")
         samples = getattr(self._ds, "samples", None)
         if not isinstance(samples, list) or not (0 <= global_idx < len(samples)):
-            raise RuntimeError("S1S2-Water: failed to locate sample path")
+            raise RuntimeError("S1S2-Water: 无法定位样本路径")
         ref_path = samples[global_idx]["img"]
         stem = os.path.splitext(os.path.basename(ref_path))[0]
         return stem, ref_path
@@ -68,7 +66,7 @@ class S1S2WaterPredictWriter(Callback):
         save_path = os.path.join(self.preds_dir, f"{stem}.tif")
         with rio.open(save_path, "w", **profile) as dst:
             dst.write(m.numpy(), 1)
-            # Colormap: 0=black (land), 255=red (water), 3=gray (nodata)
+            # 调色板统一：0=黑(陆地), 255=红(洪水), 3=浅灰(nodata)
             colormap = {
                 0: (0, 0, 0, 255),
                 3: (200, 200, 200, 255),
@@ -122,13 +120,13 @@ class S1S2WaterPredictWriter(Callback):
                 miou = bg_iou
             else:
                 miou = 0.0
-            # Macro average (consistent with training logs)
-            # Positive class (water)
+            # 宏平均（与训练日志一致）
+            # 类1（洪水）
             prec_pos = (tp / (tp + fp)) if (tp + fp) > 0 else 0.0
             rec_pos = (tp / (tp + fn)) if (tp + fn) > 0 else 0.0
             f1_pos = (2 * prec_pos * rec_pos / (prec_pos + rec_pos)) if (prec_pos + rec_pos) > 0 else 0.0
             spec_pos = (tn / (tn + fp)) if (tn + fp) > 0 else 0.0
-            # Negative class (background)
+            # 类0（背景）
             tp_neg = tn
             fp_neg = fn
             fn_neg = fp
@@ -162,7 +160,7 @@ class S1S2WaterPredictWriter(Callback):
 
     def _group_tiles_by_scene(self, tile_paths: List[str]) -> Dict[str, List[str]]:
         groups: Dict[str, List[str]] = {}
-        # Parse numeric scene id from tile filenames; fall back to full prefix if unmatched.
+        # 解析出数字场景ID，去掉 'sample' 前缀；匹配失败则回退用完整前缀
         pat = re.compile(r"^sample(?P<scene_id>\d+)_tile_r\d+_c\d+\.tif$", re.IGNORECASE)
         for p in tile_paths:
             stem = os.path.basename(p)
@@ -202,7 +200,7 @@ class S1S2WaterPredictWriter(Callback):
         return torch.from_numpy(mosaic), profile
 
     def on_predict_end(self, trainer, pl_module) -> None:
-        # Overall summary
+        # 汇总
         denom_all = self.total_tp + self.total_fp + self.total_tn + self.total_fn
         denom_iou_w = self.total_tp + self.total_fp + self.total_fn
         denom_iou_bg = self.total_tn + self.total_fp + self.total_fn
@@ -219,7 +217,7 @@ class S1S2WaterPredictWriter(Callback):
             miou = bg_iou
         else:
             miou = 0.0
-        # Macro average
+        # 宏平均（macro）
         prec_pos = self.total_tp / (self.total_tp + self.total_fp) if (self.total_tp + self.total_fp) > 0 else 0.0
         rec_pos = self.total_tp / (self.total_tp + self.total_fn) if (self.total_tp + self.total_fn) > 0 else 0.0
         f1_pos = (2 * prec_pos * rec_pos / (prec_pos + rec_pos)) if (prec_pos + rec_pos) > 0 else 0.0
@@ -256,7 +254,7 @@ class S1S2WaterPredictWriter(Callback):
         print()
         print(f"[INFO] Overall metrics saved: {overall_path}")
         print(f"[INFO] Per-sample metrics saved: {detailed_path}")
-        # Build mosaics
+        # 拼接 mosaics
         try:
             tile_files = [os.path.join(self.preds_dir, fn) for fn in os.listdir(self.preds_dir) if fn.lower().endswith(".tif")]
             if len(tile_files) > 0:
@@ -264,7 +262,7 @@ class S1S2WaterPredictWriter(Callback):
                 for scene, files in sorted(groups.items(), key=lambda kv: kv[0]):
                     out_path = os.path.join(self.mosaics_dir, f"{scene}_pred.tif")
                     mosaic, profile = self._mosaic_scene(sorted(files))
-                    # Write with colormap: 0=black, 255=red, 3=gray
+                    # 使用调色板写出：0=黑, 255=红, 3=浅灰
                     profile.update({"photometric": "palette"})
                     with rio.open(out_path, "w", **profile) as dst:
                         dst.write(mosaic[0].numpy(), 1)

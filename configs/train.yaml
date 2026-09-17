@@ -1,28 +1,35 @@
-# Main training config (Hydra entrypoint).
-# This file defines the default composition of data/model/callbacks/logger/trainer.
-defaults:
-  - _self_ # allow overriding the defaults below in this file
+# configs/train.yaml
+# 项目的最高级别配置文件入口
 
-  # Core components
-  - data: gf_floodnet
-  - model: resnet50_resnet50
+# 定义一个标准训练任务的默认构成
+defaults:
+  - _self_ # 允许在此文件中覆盖下面加载的配置
+
+  # 核心组件的默认配置组
+  - data: gf_floodnet  # 默认使用GF-FloodNet数据
+  - model: resnet50_resnet50 # 默认模型
   - callbacks: default
-  - logger: tensorboard
+  - logger: tensorboard # 默认使用tensorboard
   - trainer: default
 
-  # Auxiliary configs
+  # 辅助配置组
   - paths: default
   - extras: default
   - hydra: default
 
-  # Optional: experiment overrides (select with `experiment=...`)
+  # --- 关键：实验配置 ---
+  # 默认不加载任何特定的实验覆盖。
+  # 我们可以通过命令行 `python train.py experiment=...` 来指定要运行的实验。
   - experiment: null
 
-  # Optional: experiment overrides only (keep the repo minimal)
+  # 其他高级配置，保持默认即可
+  - hparams_search: null
+  - optional local: default
+  - debug: null
 
-# Task metadata
+# --- 全局任务元数据 ---
 task_name: "train"
-tags: ["dev"] # can be overridden by experiment configs
+tags: ["dev"] # 默认标签，会被实验配置覆盖
 train: True
 test: True
 ckpt_path: null

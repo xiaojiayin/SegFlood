@@ -1,8 +1,6 @@
-﻿# @package _global_
+# @package _global_
 
-
-# Experiment overrides (Hydra).
-
+# GF-FloodNet 光学单模态ResNet50实验
 
 defaults:
   - override /data: gf_floodnet
@@ -11,31 +9,36 @@ defaults:
   - override /logger: tensorboard
   - override /trainer: gpu
 
+# 实验标识
 tags: ["single_modal", "optical", "resnet50", "gffloodnet"]
 seed: 42
 experiment_name: "resnet50_optical_gffloodnet"
 
+# 数据配置
 data:
   modal_type: "optical"
   batch_size: 128
   num_workers: 8
 
+# 训练配置
 trainer:
   max_epochs: 100
   check_val_every_n_epoch: 1
   precision: "bf16-mixed"
   accumulate_grad_batches: 2
 
+# 日志配置
 logger:
   tensorboard:
     save_dir: "${paths.log_dir}/tensorboard"
     name: "${experiment_name}"
     version: null
 
+# 模型配置
 model:
   encoder:
     optical_channels: ${data.optical_channels}
-    sar_channels: 0
+    sar_channels: 0            # Optical-only: 关闭 SAR 编码器
 
   loss_fn:
     _target_: segmentation_models_pytorch.losses.FocalLoss
@@ -44,16 +47,16 @@ model:
     gamma: 2.0
     reduction: "mean"
     _convert_: all
-
+  
   aux_loss_fn:
     _target_: segmentation_models_pytorch.losses.DiceLoss
     mode: "multiclass"
     from_logits: true
     smooth: 1e-6
     _convert_: all
-
+  
   aux_loss_weight: 0.3
   learning_rate: 5e-4
   weight_decay: 1e-4
 
-
+  

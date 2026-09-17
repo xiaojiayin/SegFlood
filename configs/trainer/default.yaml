@@ -21,6 +21,6 @@ deterministic: False
 # enable fast development run
 fast_dev_run: False
 
-# Use the simple progress bar (avoid RichProgressBar dependency/issues by default).
+# 启用简单进度条，避免RichProgressBar bug
 enable_progress_bar: true
 enable_model_summary: true

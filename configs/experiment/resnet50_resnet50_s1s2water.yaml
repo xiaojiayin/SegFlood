@@ -1,8 +1,6 @@
 # @package _global_
 
-
-# Experiment overrides (Hydra).
-
+# S1S2-Water 双模态 ResNet50 基线（xattn 融合）可与单模态、SAM2 对比
 
 defaults:
   - override /data: s1s2_water
@@ -16,6 +14,7 @@ seed: 42
 experiment_name: "resnet50_resnet50_s1s2water"
 
 data:
+  # modal_type: 控制模态选择，与其他数据集保持一致
   modal_type: "dual"
   batch_size: 128
   num_workers: 8
@@ -35,21 +34,28 @@ model:
   encoder:
     optical_channels: ${data.optical_channels}
     sar_channels: ${data.sar_channels}
-    drop_path_rate: 0.1
+    drop_path_rate: 0.1                      # 大数据集+中等模型
 
+  # 跨模态注意力融合配置（双流实验标配）
   fusion:
     _target_: src.models.fusion.FeatureFusion
-    fusion_type: "xattn"
+    fusion_type: "xattn"                    # 跨模态注意力融合；可改为 concat|add|gated|se|cbam|xattn
+    # 按层启用 (末两层: -1,-2)，你可以扩展到更深 [-1,-2,-3] 做多层交互
     xattn_apply_levels: [-1, -2]
-    xattn_reduction: 8
-    xattn_gamma_init: 0.0
+    xattn_reduction: 8                      # 注意力瓶颈缩减比 (越大越省算力)
+    xattn_gamma_init: 0.0                   # 残差缩放初值 (0 表示从纯注意力输出开始)
+    # 仍保留其它策略参数以便快速切换（当前不会用到 se/cbam）
+    se_apply_levels: [-1, -2, -3]
+    cbam_apply_levels: [-1, -2]
+    # 统一投影归一化（add/gated/xattn 使用）
     projection_norm: gn
+    # 对齐偏置
     xattn_align_bias: true
     xattn_align_bias_scale: 1.0
-
+    
   decoder:
-    dropout: 0.1
-    up_mode: "bilinear"
+    dropout: 0.1                             # 大数据集：适度dropout
+    up_mode: "bilinear"                      # 标准双线性插值
   loss_fn:
     _target_: segmentation_models_pytorch.losses.FocalLoss
     mode: "multiclass"
@@ -67,6 +73,7 @@ model:
   learning_rate: 5e-4
   weight_decay: 1e-4
 
+  # 对齐正则（SigLIP PatchNCE）：统一参数
   alignment_enabled: true
   alignment_target_weight: 0.05
   alignment_layers: [-1]
@@ -75,4 +82,5 @@ model:
   alignment_patch_radius: 1
   align_cap_ratio: 0.3
 
+  
 

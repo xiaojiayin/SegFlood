@@ -7,7 +7,22 @@ from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-# Adds repo root to PYTHONPATH and sets PROJECT_ROOT for Hydra path configs.
+# ------------------------------------------------------------------------------------ #
+# the setup_root above is equivalent to:
+# - adding project root dir to PYTHONPATH
+#       (so you don't need to force user to install project as a package)
+#       (necessary before importing any local modules e.g. `from src import utils`)
+# - setting up PROJECT_ROOT environment variable
+#       (which is used as a base for paths in "configs/paths/default.yaml")
+#       (this way all filepaths are the same no matter where you run the code)
+# - loading environment variables from ".env" in root dir
+#
+# you can remove it if you:
+# 1. either install project as a package or move entry files to project root dir
+# 2. set `root_dir` to "." in "configs/paths/default.yaml"
+#
+# more info: https://github.com/ashleve/rootutils
+# ------------------------------------------------------------------------------------ #
 
 from src.utils import (
     RankedLogger,
@@ -20,24 +35,33 @@ from src.utils import (
 log = RankedLogger(__name__, rank_zero_only=True)
 
 
+def instantiate_model(cfg: DictConfig) -> LightningModule:
+    """Instantiate the model without recursively constructing nested components.
+
+    ``MultiModalSegmentationModule`` owns the encoder -> fusion -> decoder
+    construction order. In particular, it derives ``feature_channels`` from the
+    instantiated encoder before constructing the fusion module.
+    """
+    return hydra.utils.instantiate(cfg.model, _recursive_=False)
+
+
 @task_wrapper
 def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Evaluates given checkpoint on a datamodule testset.
 
-    This method is wrapped in a lightweight `@task_wrapper` that prints the output directory.
+    This method is wrapped in optional @task_wrapper decorator, that controls the behavior during
+    failure. Useful for multiruns, saving info about the crash, etc.
 
     :param cfg: DictConfig configuration composed by Hydra.
     :return: Tuple[dict, dict] with metrics and dict with all instantiated objects.
     """
-    # Avoid `assert` here (it can be disabled by `python -O`).
-    if not cfg.get("ckpt_path"):
-        raise ValueError("Missing `ckpt_path` in config. Please provide a checkpoint path for evaluation.")
+    assert cfg.ckpt_path
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
 
     log.info(f"Instantiating model <{cfg.model._target_}>")
-    model: LightningModule = hydra.utils.instantiate(cfg.model)
+    model = instantiate_model(cfg)
 
     log.info("Instantiating loggers...")
     logger: List[Logger] = instantiate_loggers(cfg.get("logger"))

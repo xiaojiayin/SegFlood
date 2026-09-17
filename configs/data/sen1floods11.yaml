@@ -1,0 +1,56 @@
+# Sen1Floods11 DataModule 配置文件
+# 遵循 TorchGeo 标准，支持 Lightning + Hydra 集成
+# 支持多模态卫星数据处理 (Sentinel-1 SAR + Sentinel-2 Optical)
+
+# --- Hydra 实例化目标 ---
+_target_: src.data.datamodules.sen1floods11.Sen1Floods11DataModule
+
+# --- 基础数据集配置 ---
+root: "${paths.data_dir}/Sen1Floods11"
+batch_size: 32  # 基础批次大小，可根据GPU内存调整
+num_workers: 4
+
+# --- 数据集特定配置 ---
+use_weak_labels: false  # 是否在训练时包含弱标注数据 (4,384张)
+
+# --- Sen1Floods11通道配置 ---
+optical_channels: 13  # Sentinel-2光学数据: B1-B12 (13个波段)
+sar_channels: 2       # Sentinel-1 SAR数据: VV, VH (2个极化)
+# 数据顺序：[VV, VH, B1, B2, B3, B4, B5, B6, B7, B8, B8A, B9, B10, B11, B12]
+
+# --- 数据增强配置 (配置驱动模式) ---
+# 注意：为避免与TorchGeo DataModule的data_keys冲突，这里不设置data_keys
+# DataModule会自动为整个序列设置data_keys=None，遵循TorchGeo标准
+train_transforms:
+  _target_: kornia.augmentation.AugmentationSequential
+  # 注意：data_keys将由DataModule自动设置为None，遵循TorchGeo标准
+  _args_:
+    
+    # === 推荐的基础增强配置 (安全且强泛化，不会破坏掩码) ===
+    # 水平翻转 - 增强模型对左右对称的鲁棒性
+    - _target_: kornia.augmentation.RandomHorizontalFlip
+      p: 0.5
+    
+    # 垂直翻转 - 增强模型对上下对称的鲁棒性
+    - _target_: kornia.augmentation.RandomVerticalFlip
+      p: 0.5
+    
+    # === 几何变换 ===
+    # 随机旋转 - 增强对不同朝向的适应性
+    - _target_: kornia.augmentation.RandomRotation
+      p: 0.3
+      degrees: 45.0  # 随机旋转范围: ±45度
+      resample: "nearest"  # 遵循Kornia最佳实践：mask数据使用最近邻插值
+    
+    # 仿射变换 - 模拟成像角度变化和几何畸变
+    - _target_: kornia.augmentation.RandomAffine
+      p: 0.2
+      degrees: 15.0      # 旋转角度: ±15度
+      translate: [0.1, 0.1]  # 平移范围: ±10%
+      scale: [0.95, 1.05]    # 缩放范围: 0.95x-1.05x
+      resample: "nearest"  # 遵循Kornia最佳实践：mask数据使用最近邻插值
+
+# === 验证和测试数据增强配置 ===
+# 验证/测试阶段不应用随机增强，确保结果可复现
+val_transforms: null
+test_transforms: null

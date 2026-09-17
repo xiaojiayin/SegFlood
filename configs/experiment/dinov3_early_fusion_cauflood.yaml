@@ -1,8 +1,7 @@
-﻿# @package _global_
+# @package _global_
 
-
-# Experiment overrides (Hydra).
-
+# 早期融合 baseline 实验：DINOv3 (ViT-Base) 单编码器
+# CAU-Flood 数据集版本
 
 defaults:
   - override /data: cau_flood
@@ -38,15 +37,15 @@ model:
     sar_model_name: null
     optical_pretrained: true
     sar_pretrained: false
-    optical_channels: 5
-    sar_channels: 0
+    optical_channels: 5   # 早期融合：RGBNIR(4)+SAR(1)
+    sar_channels: 0       # 仅光学编码器生效
     drop_path_rate: 0.2
 
   fusion:
     fusion_type: "concat"
 
   decoder:
-    dropout: 0.0
+    dropout: 0.0                        # 小数据集：关闭dropout
     up_mode: "bilinear"
 
   loss_fn:

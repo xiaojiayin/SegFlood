@@ -1,0 +1,2 @@
+name,experiment,overrides,device,batch_size,image_size,total_params_m,trainable_params_m,flops_g,macs_g,operations_backend,peak_cuda_memory_mb,warmup_iters,latency_iters,avg_forward_ms
+jag26_prof_t7_sam2_ef,sam2_early_fusion_s1s2water,data.add_dem=false data.add_slope=false,cuda,1,256,65.147,65.147,56.548,28.274,thop,399.665,5,20,7.080

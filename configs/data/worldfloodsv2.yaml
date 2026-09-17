@@ -1,0 +1,90 @@
+# WorldFloodsv2（官方套路）数据配置：训练/验证使用离线切片，测试用整图配置单独覆盖
+# 现已对齐为：训练/验证在线切片（无重叠网格），测试整图（batch_size=1）
+
+_target_: src.data.datamodules.worldfloodsv2.WorldFloodsv2DataModule
+
+# 使用原始数据根目录（官方在线切片）
+root: ${paths.data_dir}/WorldFloodsv2
+split: train
+
+# 通道与任务（与官方一致）
+# 二值监督：标签值 2→"水"(1)，其它值→"非水"(0)（包含 0=无效/边界、1=陆地、3=云 等）
+channels: bgri
+target_type: binary
+water_values: [2]
+optical_channels: 4  # BGRI (Blue, Green, Red, NIR)
+sar_channels: 0      # 光学-only数据集
+
+# DataLoader（在线 tiles 下可用较大 batch；测试整图将自动在 DataModule 固定 batch_size=1）
+batch_size: 128
+num_workers: 8
+
+
+
+# 固定大小 online tiles（window_size 由 DataModule 控制）：不再裁剪，仅保留基础几何增强
+window_size: [256, 256]  # 在线切片窗口（官方模板默认 256x256）
+train_transforms:
+  _target_: kornia.augmentation.AugmentationSequential
+  data_keys: ["input", "mask"]
+  same_on_batch: false
+  _args_:
+    - _target_: kornia.augmentation.RandomHorizontalFlip
+      p: 0.5
+    - _target_: kornia.augmentation.RandomVerticalFlip
+      p: 0.5
+    - _target_: kornia.augmentation.RandomRotation
+      p: 0.25
+      degrees: 30.0
+      resample: "nearest"
+    - _target_: kornia.augmentation.RandomAffine
+      p: 0.2
+      degrees: 0.0
+      translate: [0.1, 0.1]
+      scale: [0.95, 1.05]
+      resample: "nearest"
+
+val_transforms: null
+test_transforms: null
+
+# 官方标准化（SENTINEL2_NORMALIZATION Z-Score）
+official_normalization: true
+
+# 是否启用整图滑窗推理
+sliding_window:
+  enable: true      # 置 true 启用
+  stage: test        # 仅对测试集生效（建议固定为 test）
+  tile_size: 1024
+  pad_size: 32
+  multiple_of: 16
+  save_predictions: false
+  save_dir: null
+
+# 可选扩展（对齐官方/常用套路）：
+# 1) add_mndwi_input: 是否在输入末尾追加一个 MNDWI 通道（需包含 B3 与 B11 原始波段用于计算），默认 false。
+#    - 例如 channels: bgriswirs（包含 B3/B11），开启后将多出 1 通道。
+# 2) 滑窗整图评估：现在无需 callbacks 配置文件，直接在本文件的 sliding_window 段启用即可；
+#    例：`python -m src.eval data=worldfloodsv2 data.split=test data.sliding_window.enable=true ckpt_path=...`
+# 3) 调整窗口大小：window_size 可改为 512/1024 等，视显存与精度折中。
+# 4) 通道命名：channels 支持 rgb|bgr|bgri|riswir|bgriswir|bgriswirs|l89s2|sub_20|all；
+#    为使用官方 Z-Score，建议使用上述命名之一（非 all_raw）；自定义列表也可，但需关闭 official_normalization 或自行对齐顺序。
+
+# 是否在输入末尾追加 MNDWI 通道（需确保原始波段包含 B3/B11）
+add_mndwi_input: false
+
+# === 窗口过滤（官方 filter_windows；逐 tile 统计比例）===
+# - apply: 是否启用
+# - version:
+#    v1: 单通道标签时，按 (label==0 或 label==3) 的像元比例过滤（无效/云比例）。
+#    v2: 双通道标签时，约定第2通道为“水”标签（即 gt.tif 的第2个波段）：
+#        - 常见取值：0=非水/无效/被云遮挡，2=水（与你上方 water_values: [2] 保持一致）。
+#        - 判据含义：(label[1]==0) 统计的是“该 tile 内非水/无效像元比例”。
+#        - 过滤原则：当该比例 > threshold_clouds 时，丢弃该训练 tile（避免几乎没有水的样本）。
+#        若当前 gt 不足 2 通道，会自动回退到 v1 判据。
+# - threshold_clouds: 比例阈值（0~1），超过则丢弃该训练 tile。
+filter_windows:
+  apply: false
+  version: v1
+  threshold_clouds: 0.5
+
+# 整图评估快捷示例：
+#   python -m src.eval data=worldfloodsv2 data.split=test data.sliding_window.enable=true ckpt_path=/path/to/ckpt

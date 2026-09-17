@@ -1,54 +1,65 @@
-# SAM2-Hiera dual-stream config (optical + SAR).
+# timm 混合模型配置：光学 SAM2-Hiera-Base+ + SAR SAM2-Hiera-Small
 
 _target_: src.models.lightning_module.MultiModalSegmentationModule
 
-# Encoder (dual-stream)
+# 双流编码器配置
 encoder:
   _target_: src.models.encoders.DualStreamEncoder
-  model_name: "resnet50"  # placeholder (overridden by per-stream backbones)
+  model_name: "resnet50"  # 默认占位，将被具体的 per-stream 覆盖
   
-  # Optical backbone
+  # SAM2可选版本 (参数量 | 特征通道):
+  # - sam2_hiera_tiny      (26.9M)  | [96, 192, 384, 768]      # 最轻量版本
+  # - sam2_hiera_small     (33.9M)  | [96, 192, 384, 768]      # 平衡性能版本 
+  # - sam2_hiera_base_plus (68.7M)  | [112, 224, 448, 896]     # 中等性能版本
+  # - sam2_hiera_large     (212.2M) | [144, 288, 576, 1152]    # 最强性能版本
+  # === 光学模型：SAM2 Hiera Base+ ===
   optical_model_name: "sam2_hiera_base_plus"
 
-  # SAR backbone
+  # === SAR模型：SAM2 Hiera Small ===
   sar_model_name: "sam2_hiera_small"
 
-  # Channels are taken from the selected `data` config.
+  # 通道配置由数据配置提供（通过Hydra插值）
   optical_channels: ${data.optical_channels}
   sar_channels: ${data.sar_channels}
 
-  # Pretraining policy
+  # 预训练策略：光学使用预训练，SAR可按需启用
   optical_pretrained: true
   sar_pretrained: false
 
-# Fusion
+# 特征融合配置
 fusion:
   _target_: src.models.fusion.FeatureFusion
-  fusion_type: "xattn"     # options: concat|add|gated|se|cbam|xattn
+  fusion_type: "xattn"     # 使用跨模态注意力融合；可改为 concat|add|gated|se|cbam|xattn
+  # 按层启用 (末两层: -1,-2)，你可以扩展到更深 [-1,-2,-3] 做多层交互
   xattn_apply_levels: [-1,-2]
-  xattn_reduction: 8
-  xattn_gamma_init: 0.0
-  # Keep strategy-specific params for quick switching.
+  xattn_reduction: 8          # 注意力瓶颈缩减比 (越大越省算力)
+  xattn_gamma_init: 0.0       # 残差缩放初值 (0 表示从纯注意力输出开始)
+  # 仍保留其它策略参数以便快速切换（当前不会用到 se/cbam）
   se_apply_levels: [-1,-2,-3]
   cbam_apply_levels: [-1,-2]
+  # 统一投影归一化（add/gated/xattn 使用）
   projection_norm: gn
 
-# Decoder
+# 解码器配置
 decoder:
   _target_: src.models.decoders.UNetDecoder
   num_classes: 2
 
-# Loss
+# 损失函数
 loss_fn:
   _target_: torch.nn.CrossEntropyLoss
   ignore_index: -1
 
-# Optimizer hparams (can be overridden by experiments)
+# 训练超参数（可在实验里覆盖）
 learning_rate: 5e-4
 weight_decay: 1e-4
 num_classes: 2
 
-# LR scheduler (optional)
+# 对齐模式：proximity 保持历史邻域 PatchNCE 行为。
+# 可选 original | proximity | exclude_changed | disabled
+alignment_mode: proximity
+
+# 学习率调度器（可在实验里覆盖）
 scheduler_config:
   _target_: torch.optim.lr_scheduler.CosineAnnealingLR
   T_max: 50

@@ -1,0 +1,2 @@
+name,experiment,overrides,device,batch_size,image_size,total_params_m,trainable_params_m,flops_g,macs_g,operations_backend,peak_cuda_memory_mb,warmup_iters,latency_iters,avg_forward_ms
+jag26_prof_canonical_gated,resnet50_resnet50_s1s2water,data.add_dem=false data.add_slope=false model.aux_loss_weight=0.0 model.alignment_enabled=false model.alignment_target_weight=0.0 model.encoder.optical_channels=4 model.encoder.sar_channels=2 model.fusion.fusion_type=canonical_gated,cuda,1,256,107.962,107.962,92.035,46.018,thop,570.415,5,20,6.337

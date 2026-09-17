@@ -6,9 +6,11 @@ defaults:
   - model: mnist
   - logger: null
   - trainer: default
+  - callbacks: null
   - paths: default
   - extras: default
   - hydra: default
+  - experiment: null
 
 task_name: "eval"
 

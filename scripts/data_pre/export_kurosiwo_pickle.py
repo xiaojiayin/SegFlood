@@ -74,7 +74,7 @@ def main() -> None:
                 base = os.path.splitext(os.path.basename(p))[0]
                 targets.append((base, p))
     else:
-        # Default: repo_root/data/KuroSiwoGRD/pickle
+        # 默认使用仓库根目录下的 data/KuroSiwoGRD/pickle
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
         default_dir = os.path.join(repo_root, "data", "KuroSiwoGRD", "pickle")
         for name in ["KuroV2_grid_dict.gz", "KuroV2_grid_dict_test_0_100.gz"]:
@@ -85,15 +85,15 @@ def main() -> None:
         if not targets:
             raise ValueError("Either --pickle-path or --pickle-dir must be provided, and defaults not found at data/KuroSiwoGRD/pickle")
 
-    # Determine default output directory
+    # 计算输出目录默认值
     if args.out_dir is None:
-        # If a dir is provided, use it; if a file is provided, use its parent dir.
+        # 若提供了目录，用该目录；若提供了单文件，使用其父目录
         if args.pickle_dir:
             out_dir = os.path.join(args.pickle_dir, "export")
         elif args.pickle_path:
             out_dir = os.path.join(os.path.dirname(args.pickle_path), "export")
         else:
-            # export/ under the default dir
+            # 默认目录下的 export
             out_dir = os.path.join(os.path.dirname(targets[0][1]), "export")
     else:
         out_dir = args.out_dir

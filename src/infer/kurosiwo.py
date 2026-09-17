@@ -13,7 +13,7 @@ def enhance_mask_for_qgis(input_path: str, output_path: str) -> None:
     with rasterio.open(input_path) as src:
         data = src.read(1)
         profile = src.profile.copy()
-    # Normalize value range to {0,255}: map 1 -> 255 for visualization tools (e.g., QGIS).
+    # 统一值域为 0/255：将 1 替换为 255
     data = np.where(data == 1, 255, data).astype(np.uint8)
     profile.update({
         "photometric": "palette",
@@ -26,9 +26,9 @@ def enhance_mask_for_qgis(input_path: str, output_path: str) -> None:
     with rasterio.open(output_path, "w", **profile) as dst:
         dst.write(data, 1)
         colormap = {
-            0: (0, 0, 0, 255),        # background=black
-            255: (255, 0, 0, 255),    # water=red
-            3: (211, 211, 211, 255),  # nodata=light gray
+            0: (0, 0, 0, 255),        # 背景=黑
+            255: (255, 0, 0, 255),    # 水体=红
+            3: (211, 211, 211, 255),  # nodata=浅灰
         }
         dst.write_colormap(1, colormap)
         dst.set_band_description(1, "Flood Mask (0=Land,255=Water,3=NoData)")
@@ -53,7 +53,7 @@ def infer_on_dual_mosaic(
     data_mean: Optional[Tuple[float, float]] = None,
     data_std: Optional[Tuple[float, float]] = None,
     batch_size: int = 128,
-    mosaic_scale: str = "linear",  # "linear" or "db" (source scale of the SAR channels)
+    mosaic_scale: str = "linear",  # "linear" or "db" (仅作用于SAR通道)
     swap_bands: bool = False,
     use_ratio: bool = False,
     use_dem: bool = False,
@@ -70,23 +70,23 @@ def infer_on_dual_mosaic(
     event_id, date = m.group(1), m.group(2)
     enh_out = os.path.join(out_dir, f"event_{event_id}_flood_mask_{date}_enhanced.tif")
     if os.path.exists(enh_out):
-        print(f"[INFO] Event {event_id}: output already exists and will be overwritten: {enh_out}")
+        print(f"[INFO] 事件 {event_id}: 目标已存在，将覆盖: {enh_out}")
 
-    print(f"[INFO] Event {event_id}: running inference on mosaic -> {dual_tif} (tile={tile}, stride={stride})")
+    print(f"[INFO] 事件 {event_id}: 正在对大图进行推理 -> {dual_tif} (tile={tile}, stride={stride})")
     if use_dem:
-        print(f"[INFO] Event {event_id}: DEM channel enabled (dem_scale_mode={dem_scale_mode})")
+        print(f"[INFO] 事件 {event_id}: 已启用 DEM 通道 (dem_scale_mode={dem_scale_mode})")
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cuda":
         model = model.cuda()
     model.eval()
 
-    # If DEM is enabled, infer the DEM mosaic path.
+    # 若需要 DEM，则推断 DEM 大图路径
     dem_src = None
     dem_path = None
     if use_dem:
         dem_path = os.path.join(os.path.dirname(dual_tif), f"event_{event_id}_dem_{date}.tif")
         if not os.path.isfile(dem_path):
-            raise FileNotFoundError(f"use_dem=True but DEM mosaic was not found: {dem_path}")
+            raise FileNotFoundError(f"use_dem=True 但未找到 DEM 大图: {dem_path}")
 
     with rasterio.open(dual_tif) as src:
         H, W = src.height, src.width
@@ -95,7 +95,7 @@ def infer_on_dual_mosaic(
             src_mask1 = src.read_masks(1)
             src_mask2 = src.read_masks(2) if src.count >= 2 else src_mask1
             valid_src = (src_mask1 > 0) & (src_mask2 > 0)
-            # Robustness: if masks are missing/invalid (all zeros or too sparse), treat everything as valid.
+            # 兼容无掩膜/异常掩膜：若全为0或覆盖比例过低，则视为全有效
             if not np.any(valid_src) or (np.mean(valid_src) < 0.05):
                 valid_src = np.ones((H, W), dtype=bool)
         except Exception:
@@ -104,7 +104,7 @@ def infer_on_dual_mosaic(
         if use_dem and dem_path is not None:
             dem_src = rasterio.open(dem_path)
             if dem_src.height != H or dem_src.width != W:
-                raise ValueError(f"DEM and SAR mosaics have different shapes: dem={dem_src.height}x{dem_src.width}, sar={H}x{W}")
+                raise ValueError(f"DEM 大图与 SAR 大图尺寸不一致: dem={dem_src.height}x{dem_src.width}, sar={H}x{W}")
 
         pred = np.zeros((H, W), dtype=np.uint8)
         covered = np.zeros((H, W), dtype=np.uint8)
@@ -130,14 +130,14 @@ def infer_on_dual_mosaic(
                 else:
                     raise ValueError("mosaic_scale must be 'linear' or 'db'")
 
-                # If enabled, append VH/VV ratio in dB domain: (vh_db - vv_db), matching training channels=["vv","vh","vh/vv"].
+                # 若需要 vh/vv 比值通道，则在 dB 域追加第3通道（vh_db - vv_db），与训练时 data.channels=["vv","vh","vh/vv"] 对齐
                 if use_ratio:
                     vv_db = patch_sar[0]
                     vh_db = patch_sar[1]
                     ratio_db = vh_db - vv_db
                     patch_sar = np.concatenate([patch_sar, ratio_db[None, ...]], axis=0)
 
-                # Match Dataset._scale_image behavior: if mean/std are shorter than C, repeat the last value.
+                # 与 Dataset 中 _scale_image 的逻辑保持一致：若 data_mean/std 长度不足则重复最后一个值补齐
                 if zscore and data_mean is not None and data_std is not None:
                     C = patch_sar.shape[0]
                     means = np.asarray(list(data_mean), dtype=np.float32)
@@ -152,7 +152,7 @@ def infer_on_dual_mosaic(
                         std_c = stds[c] if abs(stds[c]) > 1e-6 else 1.0
                         patch_sar[c] = (patch_sar[c] - float(means[c])) / float(std_c)
 
-                # DEM patch (optional)
+                # DEM patch（若启用）
                 if use_dem and dem_src is not None:
                     dem_patch = dem_src.read(1, window=win, out_dtype=np.float32)
                     if dem_scale_mode.lower() == "zscore":
@@ -162,7 +162,7 @@ def infer_on_dual_mosaic(
                         pass
                     else:
                         raise ValueError("dem_scale_mode must be 'zscore' or 'none'")
-                    dem_patch = np.nan_to_num(dem_patch, nan=0.0, posinf=0.0, neginf=0.0)
+                    dem_patch = np.nan_to_num(dem_patch, 0.0)
                     patch = np.concatenate([patch_sar, dem_patch[None, ...]], axis=0)
                 else:
                     patch = patch_sar
@@ -203,11 +203,11 @@ def infer_on_dual_mosaic(
         except Exception:
             pass
 
-    # Mark uncovered/invalid regions as nodata=3 (gray) and ignore them during evaluation.
+    # 将未覆盖区域或源无效区域标记为 nodata=3（浅灰显示并在评估中忽略）
     pred[covered == 0] = 3
     pred[~valid_src] = 3
 
-    # Write a single-band enhanced mask (with palette), suitable for GIS tools.
+    # 写增强版单波段
     tmp_mask = os.path.join(out_dir, f"._event_{event_id}_{date}_tmp.tif")
     profile.update({"count": 1, "dtype": "uint8", "nodata": 3})
     profile.pop("compress", None)
@@ -221,7 +221,7 @@ def infer_on_dual_mosaic(
         os.remove(tmp_mask)
     except Exception:
         pass
-    print(f"[INFO] Event {event_id}: enhanced mask written: {enh_out}")
+    print(f"[INFO] 事件 {event_id}: 已写出增强版掩码: {enh_out}")
     return enh_out
 
 
@@ -233,7 +233,7 @@ def compute_event_metrics_from_files(enh_pred_path: str, data_root: str) -> Opti
     event_id, date = m.group(1), m.group(2)
     gt_path = os.path.join(data_root, f"event_{event_id}_flood_mask_{date}.tif")
     if not os.path.isfile(gt_path):
-        print(f"[WARN] Event {event_id}: GT mosaic not found; skip metrics: {gt_path}")
+        print(f"[WARN] 事件 {event_id}: 未找到GT大图，跳过指标: {gt_path}")
         return None
 
     with rasterio.open(enh_pred_path) as sp:
@@ -256,14 +256,14 @@ def compute_event_metrics_from_files(enh_pred_path: str, data_root: str) -> Opti
             )
             gt = dst
         except Exception as e:
-            print(f"[WARN] Event {event_id}: failed to reproject GT to prediction grid; fall back to cropping: {e}")
+            print(f"[WARN] 事件 {event_id}: 重采样GT到预测网格失败，改为尺寸裁剪对齐: {e}")
             raw_gt = sg.read(1)
             h = min(pred.shape[0], raw_gt.shape[0])
             w = min(pred.shape[1], raw_gt.shape[1])
             pred = pred[:h, :w].astype(np.uint8)
             gt = raw_gt[:h, :w].astype(np.uint8)
-    # Optional: load event-level validity mask mosaic (e.g., merged from MK0_MNA).
-    # If present, it is combined with GT ignore pixels (=3) to define the valid region.
+    # 可选：读取事件级有效性掩码（MK0_MNA 合并而成的 valid mask mosaic）
+    # 若存在，则与 GT 的无效像素(=3)共同决定有效区域
     valid = None
     valid_mask_path = os.path.join(data_root, f"event_{event_id}_valid_mask_{date}.tif")
     if os.path.isfile(valid_mask_path):
@@ -281,19 +281,19 @@ def compute_event_metrics_from_files(enh_pred_path: str, data_root: str) -> Opti
                 )
                 valid = (vdst == 1)
         except Exception as e:
-            print(f"[WARN] Event {event_id}: failed to read/reproject validity mask; ignore it: {e}")
+            print(f"[WARN] 事件 {event_id}: 读取/重采样有效掩码失败，将忽略此掩码: {e}")
             valid = None
 
-    # Adaptive binarization and ignore handling:
-    # - Ignore: prefer 3 or 255 (cloud/invalid)
-    # - Water: prefer 1; if absent use 2; if neither exists but positives exist, fall back to (gt > 0)
+    # 自适应二值化与忽略：
+    # - 忽略：优先识别 3 或 255（云/无效）
+    # - 水体：优先使用 1；若 1 不存在则使用 2；若两者都不存在但存在正值，则退回 (gt > 0)
     uniq = np.unique(gt)
     ignore_mask = np.zeros_like(gt, dtype=bool)
     if 3 in uniq:
         ignore_mask |= (gt == 3)
     if 255 in uniq:
         ignore_mask |= (gt == 255)
-    # Water label decision
+    # 水体判定
     if 1 in uniq and np.any(gt == 1):
         water_mask = (gt == 1)
     elif 2 in uniq and np.any(gt == 2):
@@ -303,7 +303,7 @@ def compute_event_metrics_from_files(enh_pred_path: str, data_root: str) -> Opti
     gt_bin = water_mask.astype(np.uint8)
     valid = ((~ignore_mask) & valid) if isinstance(valid, np.ndarray) else (~ignore_mask)
 
-    # Diagnostics: positive ratio over valid pixels
+    # 诊断：阳性占比（基于有效区域）
     valid_count = float(max(1, valid.sum()))
     gt_pos_ratio = float(((gt_bin == 1) & valid).sum()) / valid_count
     pred_pos_ratio = float(((pred == 255) & valid).sum()) / valid_count
@@ -326,7 +326,7 @@ def compute_event_metrics_from_files(enh_pred_path: str, data_root: str) -> Opti
     iou_bg = tn / max(1, (tn + fp + fn))
     miou = 0.5 * (iou_water + iou_bg)
 
-    # Aliases for backwards-compatible metric names.
+    # 其它别名（与测试日志口径对齐）
     bg_recall = specificity
     bg_specificity = specificity
     bg_false_alarm_rate = fp / max(1, (fp + tn))

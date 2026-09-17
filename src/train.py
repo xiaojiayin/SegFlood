@@ -10,9 +10,24 @@ from omegaconf import DictConfig
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
-# Enable TF32 (TensorFloat-32) matmul on supported GPUs for higher throughput
-# (may cause minor numerical differences).
-torch.set_float32_matmul_precision("high")
+# 启用 Tensor Core 优化以提升 matmul 吞吐（轻微精度变化）
+torch.set_float32_matmul_precision('high')
+# ------------------------------------------------------------------------------------ #
+# the setup_root above is equivalent to:
+# - adding project root dir to PYTHONPATH
+#       (so you don't need to force user to install project as a package)
+#       (necessary before importing any local modules e.g. `from src import utils`)
+# - setting up PROJECT_ROOT environment variable
+#       (which is used as a base for paths in "configs/paths/default.yaml")
+#       (this way all filepaths are the same no matter where you run the code)
+# - loading environment variables from ".env" in root dir
+#
+# you can remove it if you:
+# 1. either install project as a package or move entry files to project root dir
+# 2. set `root_dir` to "." in "configs/paths/default.yaml"
+#
+# more info: https://github.com/ashleve/rootutils
+# ------------------------------------------------------------------------------------ #
 
 from src.utils import (
     RankedLogger,
@@ -32,7 +47,8 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Trains the model. Can additionally evaluate on a testset, using best weights obtained during
     training.
 
-    This method is wrapped in a lightweight `@task_wrapper` that prints the output directory.
+    This method is wrapped in optional @task_wrapper decorator, that controls the behavior during
+    failure. Useful for multiruns, saving info about the crash, etc.
 
     :param cfg: A DictConfig configuration composed by Hydra.
     :return: A tuple with metrics and dict with all instantiated objects.

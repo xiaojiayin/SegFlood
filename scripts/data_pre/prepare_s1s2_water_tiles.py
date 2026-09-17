@@ -1,20 +1,32 @@
 #!/usr/bin/env python
-"""Prepare tiled GeoTIFFs for S1S2-Water.
+"""Prepare tiled GeoTIFFs for S1S2-Water with options mirroring official reference code.
 
-Key features:
-- Split sources:
-  - Read official catalog.json (STAC Items contain `properties.split`)
-  - Or provide a custom split JSON (train/val/test -> [id])
-- Sensor selection: --sensor s1 | s2 | dual
-- Optional extra channels: --include-slope / --include-elevation
-- Nodata filtering: --exclude-nodata (uses *_valid.tif), configurable via --valid-threshold
-- Resampling: use a reference grid (S2 if available else S1) and reproject other rasters
-- Scaling:
-  - S1: Int16 dB*100 -> /100 to dB
-  - S2: UInt16 TOA*10000 -> /10000 to [0,1]
-- Writes a metadata JSON describing channel order and scaling.
+Key features (compat + extensions):
+1. Splits来源：
+     - 方式A: 读取官方 catalog.json（STAC Items 内含 `properties.split`）
+     - 方式B: 指定 split JSON (train/val/test -> [id])
+2. 传感器选择： --sensor s1 | s2 | dual  (官方每次只处理一个，这里支持双传感器组合)
+3. 可选附加： --include-slope / --include-elevation  (官方只支持 slope 可拼接；这里 elevation 也可选)
+4. Nodata / 无效像素剔除： --exclude-nodata (使用 *_valid.tif 掩膜). 可设 --valid-threshold (默认1.0 = 全部有效)
+5. 重采样： 以主参考网格(ref=S2 if available else S1)。DEM / slope / 另一传感器重投影对齐。传递 src_nodata / dst_nodata （若存在）
+6. 缩放：
+     - S1: 官方提供 Int16 dB*100 => /100 得 dB
+     - S2: UInt16 TOA *10000 => /10000 得 0-1 浮点
+7. 通道顺序动态生成并写 metadata JSON (包含单位、缩放、是否dB、来源说明)
+8. 统计(mean/std/min/max)仅对有效像素计算 (如果 --exclude-nodata)。
+9. Center crop 保证尺寸是 tile_size 的整数倍；输出 tile 保留地理参考。
 
-Note: this script does not perform normalization; do it in training using computed stats.
+输出目录结构：
+    <out-root>/<split>/{images,masks,valid} （valid 可选写出联合有效掩膜）
+
+示例：
+    python scripts/data_pre/prepare_s1s2_water_tiles.py \
+        --root data/S1S2-Water \
+        --catalog data/S1S2-Water/catalog.json \
+        --out-root data/S1S2-Water/tiles_dual \
+        --sensor dual --include-elevation --include-slope --exclude-nodata
+
+注意：本脚本不做标准化 (仅比例缩放)，训练阶段再用统计值归一化。
 """
 from __future__ import annotations
 import argparse, os, json
@@ -32,20 +44,20 @@ from typing import Dict, List, Optional
 
 def parse_args():
     p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    p.add_argument('--root', required=True, help='Dataset root (contains 1/, 5/, catalog.json)')
-    p.add_argument('--out-root', required=True, help='Output root directory')
+    p.add_argument('--root', required=True, help='解压并扁平化后的数据根目录 (包含 1/, 5/, catalog.json)')
+    p.add_argument('--out-root', required=True, help='输出根目录')
     group_split = p.add_mutually_exclusive_group(required=True)
-    group_split.add_argument('--catalog', help='Official catalog.json path (STAC)')
-    group_split.add_argument('--split-json', help='Custom split JSON (train/val/test)')
-    p.add_argument('--sensor', choices=['s1','s2','dual'], default='dual', help='Process single or dual sensors')
-    p.add_argument('--include-slope', action='store_true', help='Append slope channel (SLOPE)')
-    p.add_argument('--include-elevation', action='store_true', help='Append elevation channel (optional)')
-    p.add_argument('--exclude-nodata', action='store_true', help='Skip tiles with invalid pixels (use valid mask)')
-    p.add_argument('--valid-threshold', type=float, default=1.0, help='Valid pixel ratio threshold (0-1)')
-    p.add_argument('--tile-size', type=int, default=256, help='Tile size (square)')
-    p.add_argument('--overwrite', action='store_true', help='Overwrite existing tiles')
-    p.add_argument('--write-valid-mask', action='store_true', help='Write union valid mask under valid/')
-    p.add_argument('--metadata-name', default='s1s2_water_metadata.json', help='Metadata JSON filename')
+    group_split.add_argument('--catalog', help='官方 catalog.json 路径 (STAC)')
+    group_split.add_argument('--split-json', help='自定义 splits JSON (train/val/test)')
+    p.add_argument('--sensor', choices=['s1','s2','dual'], default='dual', help='处理单一或双传感器')
+    p.add_argument('--include-slope', action='store_true', help='追加坡度通道 (官方 SLOPE)')
+    p.add_argument('--include-elevation', action='store_true', help='追加高程通道 (扩展选项)')
+    p.add_argument('--exclude-nodata', action='store_true', help='跳过含无效像素的 tile (使用 valid 掩膜)')
+    p.add_argument('--valid-threshold', type=float, default=1.0, help='有效像素比例阈值 (0-1). 1.0=全部有效才保留')
+    p.add_argument('--tile-size', type=int, default=256, help='Tile 尺寸 (正方形)')
+    p.add_argument('--overwrite', action='store_true', help='覆盖已存在 tile')
+    p.add_argument('--write-valid-mask', action='store_true', help='输出联合有效掩膜 (valid)')
+    p.add_argument('--metadata-name', default='s1s2_water_metadata.json', help='写出的元数据 JSON 文件名')
     return p.parse_args()
 
 
@@ -171,10 +183,10 @@ def process_sample(root: Path,
     need_s2 = sensor in ('s2','dual')
     files = load_sample(root, sid, need_s1, need_s2, include_elev, include_slope)
 
-    # Choose reference grid (prefer S2).
+    # 选择参考栅格（优先 S2）
     ref_key = 's2_img' if 's2_img' in files else 's1_img'
     with rasterio.open(files[ref_key]) as ds_ref:
-        # Open other rasters
+        # 打开其余
         ctx = {}
         for k, v in files.items():
             if k == ref_key:
@@ -190,7 +202,7 @@ def process_sample(root: Path,
         ds_elev = ctx.get('elev')
         ds_slope = ctx.get('slope')
 
-        # Read & scale
+        # 读取 & 缩放
         if ds_s2 is not None:
             s2 = ds_s2.read(out_dtype='float32') / 10000.0
             mask_s2 = ds_s2_m.read(1).astype(np.uint8) if ds_s2_m is not None else None
@@ -208,7 +220,7 @@ def process_sample(root: Path,
             mask_s1 = None
             valid_s1 = None
 
-        # Resample if dual and sizes differ
+        # 重采样一方 (若 dual 且尺寸不一致)
         if s1_lin is not None and s2 is not None and ds_s1 is not None and ds_s2 is not None:
             if (ds_s1.height != ds_s2.height) or (ds_s1.width != ds_s2.width):
                 warnings.warn(f"[WARN] S1 shape {ds_s1.height}x{ds_s1.width} != S2 {ds_s2.height}x{ds_s2.width}, resampling S1 & its mask/valid")
@@ -253,7 +265,7 @@ def process_sample(root: Path,
         v_s1_c = crop_any(valid_s1)
         v_s2_c = crop_any(valid_s2)
 
-        # Assemble image channels
+        # 组装图像通道
         stacks = []
         if s2_c is not None:
             stacks.append(s2_c)
@@ -265,7 +277,7 @@ def process_sample(root: Path,
             stacks.append(slope_c)
         image_stack = np.concatenate(stacks, axis=0)
 
-        # Assemble masks
+        # 组装 mask
         mask_list = []
         if m_s1_c is not None:
             mask_list.append(m_s1_c)
@@ -273,7 +285,7 @@ def process_sample(root: Path,
             mask_list.append(m_s2_c)
         masks_stack = np.stack(mask_list, axis=0)
 
-        # Union valid mask
+        # 联合有效掩膜
         union_valid = None
         if exclude_nodata or write_valid_mask:
             val_list = []
@@ -332,8 +344,8 @@ def load_splits(args) -> Dict[str, List[int]]:
     if args.catalog:
         cat_path = Path(args.catalog)
         data = json.loads(cat_path.read_text())
-        # STAC catalog or collection; items can be nested. The official release provides catalog.json.
-        # Simple strategy: iterate features/items; read properties.split and infer sample id from assets.
+        # STAC catalog or collection; items likely nested. Official提供 catalog.json (feature collection)
+        # 简单策略：遍历 features / items 查 properties.split 与 assets 中 id
         items = []
         if 'features' in data:
             items = data['features']
@@ -349,7 +361,7 @@ def load_splits(args) -> Dict[str, List[int]]:
         for it in items:
             props = it.get('properties', {})
             sp = props.get('split')
-            # Infer sample id from asset paths
+            # 解析 sample id: 从 assets 某个 path 中抽取 _{id}_ 图样
             assets = it.get('assets', {})
             sid = None
             for a in assets.values():

@@ -11,64 +11,48 @@
 
 set -euo pipefail
 
-# Usage:
+# 用法：
 #   sbatch scripts/run/train_s1s2water.sh <EXPERIMENT_NAME> [ADD_DEM] [ADD_SLOPE] [EXTRA_OVERRIDES_STR]
-# Notes:
-#   - ADD_DEM / ADD_SLOPE: true|false
+# 说明：
+#   EXPERIMENT_NAME：使用已有实验配置名，例如
+#     dinov3_dinov3_s1s2water | sam2_sam2_s1s2water | efficientnetb4_mobilenetv3_s1s2water | resnet50_resnet50_s1s2water
+#   ADD_DEM, ADD_SLOPE ∈ {true,false}，默认 true
 
 EXP=${1:-dinov3_dinov3_s1s2water}
 ADD_DEM=${2:-false}
 ADD_SLOPE=${3:-false}
-# Extra Hydra overrides (optional, arg #4), e.g. disable alignment or align-bias:
+# 额外 Hydra 覆盖项（可选，第4个参数），例如关闭对齐或关闭对齐偏置：
 #   "model.alignment_enabled=false model.fusion.xattn_align_bias=false experiment_name=dinov3_dinov3_s1s2water_align-off_bias-off"
 EXTRA_OVERRIDES_STR=${4:-""}
 
-###############################################################################
-# Runtime configuration (override via env vars if needed)
-# - PROJECT_ROOT: repo root (default: inferred from this script location)
-# - DATA_ROOT_BASE: dataset base dir (default: $PROJECT_ROOT/data)
-# - DATA_ROOT_S1S2: S1S2-Water root (default: $DATA_ROOT_BASE/S1S2-Water)
-# - CONDA_ENV: conda env name to activate (optional; otherwise activate before sbatch)
-# - HF_ENDPOINT / HF_TOKEN: Hugging Face settings (optional)
-# - HF_HUB_CACHE / TORCH_HOME: caches (optional; defaults under $PROJECT_ROOT/checkpoints)
-###############################################################################
+# 数据根
+PROJECT_ROOT="${PROJECT_ROOT:-$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null || pwd)}"
+DATA_ROOT_S1S2="${PROJECT_ROOT}/data/S1S2-Water"
 
-PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-export PROJECT_ROOT
-
-DATA_ROOT_BASE="${DATA_ROOT_BASE:-${PROJECT_ROOT}/data}"
-DATA_ROOT_S1S2="${DATA_ROOT_S1S2:-${DATA_ROOT_BASE}/S1S2-Water}"
-
-# Run name suffix (for TensorBoard grouping)
+# 记录名后缀（便于 TensorBoard 分组与日志对齐）
 SUF="dem-${ADD_DEM}_slope-${ADD_SLOPE}"
 EXP_NAME="${EXP}_${SUF}"
 
-: "${HF_ENDPOINT:=}"
-: "${HF_TOKEN:=}"
-: "${HF_HUB_CACHE:=${PROJECT_ROOT}/checkpoints/.cache}"
-: "${TORCH_HOME:=${PROJECT_ROOT}/checkpoints}"
-export HF_ENDPOINT HF_TOKEN HF_HUB_CACHE TORCH_HOME
-export HUGGINGFACE_HUB_CACHE="${HF_HUB_CACHE}"
-mkdir -p "${HF_HUB_CACHE}" "${TORCH_HOME}" "${PROJECT_ROOT}/logs" || true
+# 环境
+export HF_ENDPOINT="https://hf-mirror.com"
+export HF_TOKEN="${HF_TOKEN:-}"
+export HF_HUB_CACHE="${PROJECT_ROOT}/checkpoints/.cache"
+export TORCH_HOME="${PROJECT_ROOT}/checkpoints"
+mkdir -p "${HF_HUB_CACHE}" "${TORCH_HOME}" "${PROJECT_ROOT}/logs"
+export HF_HUB_OFFLINE=1
 
-if command -v conda >/dev/null 2>&1; then
-  # shellcheck disable=SC1090
-  source "$(conda info --base)/etc/profile.d/conda.sh" || true
-  if [[ -n "${CONDA_ENV:-}" ]]; then
-    conda activate "${CONDA_ENV}" || true
-  fi
-fi
+source "${CONDA_SH:-${HOME}/miniconda3/etc/profile.d/conda.sh}"
+conda activate segflood
 
-cd "${PROJECT_ROOT}"
-
-echo "================ S1S2-Water run ================"
+echo "================ S1S2-Water 消融 ================"
 echo " DEM/SLOPE: dem=${ADD_DEM}, slope=${ADD_SLOPE}"
 echo " EXP/YAML:  ${EXP}"
 echo " EXP_NAME:  ${EXP_NAME}"
+echo " shallow_enabled: true  xattn_align_bias: true alignment_enabled: true"
 echo "==============================================="
 
-# Hydra overrides
-# Compute channel counts based on DEM/SLOPE (optical starts with 4 channels; SAR fixed at 2)
+# Hydra 覆盖
+# 依据 DEM/SLOPE 动态计算通道数（光学在基础4通道上追加，SAR 固定2通道）
 opt_ch=4
 sar_ch=2
 if [[ "${ADD_DEM}" == "true" ]]; then
@@ -89,8 +73,9 @@ OVERRIDES=(
   "experiment_name=${EXP_NAME}"
 )
 
-# Append user overrides (space-separated)
+# 追加用户指定的额外 Hydra 覆盖（用于关闭对齐损失、对齐偏置等）
 if [[ -n "${EXTRA_OVERRIDES_STR}" ]]; then
+  # 按空格拆分为数组，每一项都是一个独立的 override
   read -r -a extra_arr <<< "${EXTRA_OVERRIDES_STR}"
   for item in "${extra_arr[@]}"; do
     OVERRIDES+=("${item}")
@@ -103,10 +88,10 @@ code=$?
 set -e
 
 if [ $code -ne 0 ]; then
-  echo "[RUN] FAILED (code=$code)" >&2
+  echo "[RUN] ❌ 失败 (code=$code)" >&2
   exit $code
 else
-  echo "[RUN] OK"
+  echo "[RUN] ✅ 成功结束"
 fi
 
 

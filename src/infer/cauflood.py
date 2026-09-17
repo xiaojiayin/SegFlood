@@ -9,15 +9,10 @@ from lightning.pytorch.callbacks import Callback  # type: ignore
 
 class CAUFloodPredictWriter(Callback):
     """
-    Prediction writer + evaluator driven by `Trainer.predict`.
-
-    Outputs:
-    - predictions/ (PNG)
-    - overall_metrics.xlsx, detailed_samples.xlsx
-
-    Contract: `pl_module.predict_step` should return either:
-    - a dict containing {"main_logits": ..., "preds": ...}, or
-    - a logits tensor directly (then preds are derived via argmax).
+    基于 Trainer.predict 的落盘与评估：
+    - 写出 predictions/（PNG）
+    - 写出 overall_metrics.xlsx 与 detailed_samples.xlsx
+    依赖于 pl_module.predict_step 返回 {"main_logits":..., "preds":...}
     """
 
     def __init__(self, output_dir: str, save_predictions: bool, save_format: str = "auto") -> None:
@@ -59,29 +54,29 @@ class CAUFloodPredictWriter(Callback):
     def _save_pred(self, pred_2d: torch.Tensor, name: str) -> None:
         from PIL import Image  # lazy
         import numpy as np
-        # RGB visualization: 0=black (land), 255=red (water)
+        # 以彩色 PNG 可视化：0=黑(陆地), 255=红(水体)
         m = (pred_2d.detach().cpu() > 0).to(torch.uint8) * 255
         arr = m.numpy()
         rgb = np.zeros((arr.shape[0], arr.shape[1], 3), dtype=np.uint8)
-        rgb[..., 0] = arr  # R channel = mask
-        # G/B are kept 0 -> red mask overlay
+        rgb[..., 0] = arr  # R 通道 = 掩码
+        # G/B 保持 0，得到红色
         png_path = os.path.join(self.preds_dir, f"{name}.png")
         Image.fromarray(rgb, mode="RGB").save(png_path)
 
     def on_predict_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx: int = 0) -> None:
         logits = outputs.get("main_logits") if isinstance(outputs, dict) else outputs
-        assert isinstance(logits, torch.Tensor), "`predict_step` must return a dict containing 'main_logits' or a logits tensor"
+        assert isinstance(logits, torch.Tensor), "predict_step 必须返回包含 'main_logits' 的字典或张量"
         masks = batch.get("mask")
         if isinstance(masks, torch.Tensor) and logits.shape[2:] != masks.shape[1:]:
             logits = F.interpolate(logits, size=masks.shape[1:], mode="bilinear", align_corners=False)
         preds = outputs.get("preds") if isinstance(outputs, dict) else torch.argmax(logits, dim=1)
-        assert isinstance(preds, torch.Tensor), "`predict_step` must return 'preds' or allow deriving preds from logits"
+        assert isinstance(preds, torch.Tensor), "predict_step 必须返回 'preds' 或可从 logits 计算得到"
         bs = preds.shape[0]
         for i in range(bs):
             global_idx = self.sample_counter + i
             name = self._get_sample_name(global_idx)
             pred_i = preds[i]
-            assert isinstance(masks, torch.Tensor), "Missing 'mask' in batch; cannot compute metrics"
+            assert isinstance(masks, torch.Tensor), "batch 中缺少 'mask'，无法计算指标"
             mask_i = masks[i]
             p = pred_i.detach().flatten()
             g = mask_i.detach().flatten()
@@ -189,7 +184,7 @@ class CAUFloodPredictWriter(Callback):
         detailed_path = os.path.join(self.output_dir, "detailed_samples.xlsx")
         pd.DataFrame([overall]).to_excel(overall_path, index=False)
         pd.DataFrame(self.rows).to_excel(detailed_path, index=False)
-        # Print a blank line before paths (keeps logs readable next to tqdm output).
+        # 与 tqdm 分隔，打印前先换行
         print()
         print(f"[INFO] Overall metrics saved: {overall_path}")
         print(f"[INFO] Per-sample metrics saved: {detailed_path}")

@@ -1,29 +1,44 @@
-# DINOv3 dual-stream config (timm ViT backbones).
-# Change `optical_model_name` / `sar_model_name` to switch variants (e.g. vit_small/base/large_patch16_dinov3).
+# timm DINOv3 双流（可单流）配置：可与现有数据管线直接配合
+#
+# 变体速览（timm 1.0.20，粗略参数量，patch=16）：
+# - vit_small_patch16_dinov3              : ~21.6M  params, embed_dim=384 , depth=12
+# - vit_small_plus_patch16_dinov3         : ~28.7M  params, embed_dim=384 , depth=12  （plus：更大头/FFN）
+# - vit_base_patch16_dinov3               : ~85.6M  params, embed_dim=768 , depth=12
+# - vit_large_patch16_dinov3              : ~303.1M params, embed_dim=1024, depth=24
+# - vit_huge_plus_patch16_dinov3          : ~840.6M params, embed_dim=1280, depth=32 （plus：更大）
+# - vit_7b_patch16_dinov3                 : ~6716M  params, embed_dim=4096, depth=40 （7B 级别，显存极大）
+# - 带后缀 _qkvb 的同名模型：QKV bias 版本（qkv_bias=True），容量略增，表现因任务而异
+#
+# 建议：
+# - 单模态：optical/sar 任选其一，将另一侧通道设为0；小显存可用 small/base，追求精度可用 large。
+# - 双模态：常见组合 optical=base，sar=small（本文件默认）；若显存紧张可用 small+small。
+# - 若需替换具体变体，修改下方 optical_model_name / sar_model_name 为上表任一模型名即可。
 
 _target_: src.models.lightning_module.MultiModalSegmentationModule
 
-# Encoder (dual-stream). Input channels are taken from the selected `data` config.
+# 编码器：支持单/双模态；按数据集的 optical/sar 通道自动匹配 in_chans
 encoder:
   _target_: src.models.encoders.DualStreamEncoder
+  # 典型可选：vit_small|small_plus|base|large|huge_plus|7b（全部 patch16_dinov3）
   optical_model_name: "vit_base_patch16_dinov3"
   sar_model_name: "vit_small_patch16_dinov3"
 
+  # 通道来自数据配置
   optical_channels: ${data.optical_channels}
   sar_channels: ${data.sar_channels}
 
-  # Pretraining / regularization
+  # 预训练与正则
   optical_pretrained: true
   sar_pretrained: true
   drop_path_rate: 0.2
-  # Optional shallow CNN features for single-scale ViT backbones.
+  # 若主干为 ViT（单尺度），可增开浅层细节编码器，补充4x/8x特征
   shallow_enabled: true
   shallow_norm: gn
   shallow_c2: 64
   shallow_c4: 128
   shallow_c8: 256
 
-# Fusion (cross-modal attention by default).
+# 融合：默认使用跨模态注意力；若单模态则等价于直通
 fusion:
   _target_: src.models.fusion.FeatureFusion
   fusion_type: "xattn"
@@ -32,22 +47,26 @@ fusion:
   xattn_gamma_init: 0.0
   projection_norm: gn
 
-# Decoder
+# 解码器：标准 UNetDecoder（支持多尺度特征）
 decoder:
   _target_: src.models.decoders.UNetDecoder
   num_classes: ${model.num_classes}
 
-# Loss (can be overridden by experiments)
+# 损失函数（实验里可覆盖为 Focal/Dice 等）
 loss_fn:
   _target_: torch.nn.CrossEntropyLoss
   ignore_index: -1
 
-# Optimizer hparams (can be overridden by experiments)
+# 训练超参（实验可覆盖）
 learning_rate: 5e-4
 weight_decay: 1e-4
 num_classes: 2
 
-# LR scheduler (optional)
+# 对齐模式：proximity 保持历史邻域 PatchNCE 行为。
+# 可选 original | proximity | exclude_changed | disabled
+alignment_mode: proximity
+
+# 学习率调度（实验可覆盖）
 scheduler_config:
   _target_: torch.optim.lr_scheduler.CosineAnnealingLR
   T_max: 50

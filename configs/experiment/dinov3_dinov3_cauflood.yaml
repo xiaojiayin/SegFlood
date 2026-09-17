@@ -1,8 +1,6 @@
-﻿# @package _global_
+# @package _global_
 
-
-# Experiment overrides (Hydra).
-
+# CAU-Flood: DINOv3 双流（Optical+SAR）
 
 defaults:
   - override /data: cau_flood
@@ -34,12 +32,12 @@ model:
   encoder:
     optical_channels: ${data.optical_channels}
     sar_channels: ${data.sar_channels}
-    drop_path_rate: 0.2
+    drop_path_rate: 0.2                      # 小数据集+大模型
 
   decoder:
     _target_: src.models.decoders.UNetDecoder
     num_classes: 2
-    dropout: 0.0
+    dropout: 0.0                             # 小数据集：关闭解码器dropout
 
   fusion:
     _target_: src.models.fusion.FeatureFusion
@@ -66,5 +64,6 @@ model:
   aux_loss_weight: 0.3
   learning_rate: 5e-4
   weight_decay: 1e-4
+
 
 

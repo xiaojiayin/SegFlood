@@ -1,0 +1,54 @@
+# configs/callbacks/enhanced.yaml
+# 增强的回调配置，包含更多监控和调试功能
+
+defaults:
+  - model_checkpoint
+  - early_stopping  
+  - model_summary
+  - rich_progress_bar
+  - _self_
+
+# 基础回调（继承自default）
+model_checkpoint:
+  _target_: lightning.pytorch.callbacks.ModelCheckpoint
+  dirpath: "${paths.output_dir}/checkpoints"
+  filename: "epoch_{epoch:03d}_valloss_{val/loss:.4f}"
+  monitor: "val/loss"
+  mode: "min"
+  save_last: True
+  save_top_k: 3
+  auto_insert_metric_name: False
+  verbose: False
+
+early_stopping:
+  _target_: lightning.pytorch.callbacks.EarlyStopping
+  monitor: "val/loss"
+  patience: 10
+  mode: "min"
+  verbose: False
+  min_delta: 0.0001
+
+model_summary:
+  _target_: lightning.pytorch.callbacks.ModelSummary
+  max_depth: 2
+
+rich_progress_bar:
+  _target_: lightning.pytorch.callbacks.RichProgressBar
+
+# 新增：学习率监控
+lr_monitor:
+  _target_: lightning.pytorch.callbacks.LearningRateMonitor
+  logging_interval: "step"
+  log_momentum: True
+
+# 新增：GPU统计监控
+device_stats_monitor:
+  _target_: lightning.pytorch.callbacks.DeviceStatsMonitor
+  cpu_stats: True
+
+# 新增：梯度监控（调试时有用）
+gradient_monitor:
+  _target_: lightning.pytorch.callbacks.GradientAccumulationScheduler
+  scheduling:
+    1: 1
+    5: 2  # 从第5个epoch开始累积2个批次的梯度

@@ -1,8 +1,7 @@
-﻿# @package _global_
+# @package _global_
 
-
-# Experiment overrides (Hydra).
-
+# 早期融合 baseline 实验：EfficientNet-B4 单编码器处理所有通道（光学+SAR）
+# CAU-Flood数据集版本
 
 defaults:
   - override /data: cau_flood
@@ -11,49 +10,62 @@ defaults:
   - override /logger: tensorboard
   - override /trainer: gpu
 
+# 实验标识
 tags: ["early_fusion", "baseline", "efficientnet_b4", "cauflood", "single_encoder"]
 seed: 42
 experiment_name: "efficientnetb4_early_fusion_cauflood"
 
+# 数据配置：早期融合模式
 data:
-  modal_type: "dual"
-  output_image_key: true
+  modal_type: "dual"                    # 仍然加载双模态数据
+  output_image_key: true                # 🎯 关键：强制输出单键image
   batch_size: 128
   num_workers: 8
 
+# 训练配置
 trainer:
   max_epochs: 100
   check_val_every_n_epoch: 1
   precision: "bf16-mixed"
 
+# 日志配置
 logger:
   tensorboard:
     save_dir: "${paths.log_dir}/tensorboard"
     name: "${experiment_name}"
     version: null
 
+# 模型配置：单编码器早期融合
 model:
   encoder:
+    # 🎯 关键配置：只启用光学编码器，处理所有通道
     optical_model_name: "efficientnet_b4"
     optical_pretrained: true
+    # 早期融合：RGBNIR(4)+SAR(1)=5
     optical_channels: 5
-
+    
+    # 禁用SAR编码器（早期融合不需要双流）
     sar_model_name: null
     sar_pretrained: false
+    # 早期融合禁用第二编码器
     sar_channels: 0
+    
+    drop_path_rate: 0.1                 # 中等模型：适度正则化
 
-    drop_path_rate: 0.1
-
+  # 融合模块配置（单流时会自动走单模态投影路径）
   fusion:
-    fusion_type: "concat"
+    fusion_type: "concat"               # 保持与双流实验一致的配置
 
+  # 解码器配置
   decoder:
-    dropout: 0.0
-    up_mode: "bilinear"
+    dropout: 0.0                        # 小数据集：关闭dropout
+    up_mode: "bilinear"                 # 双线性上采样
 
+  # 损失函数配置
   loss_fn:
     _target_: torch.nn.CrossEntropyLoss
     ignore_index: -1
   learning_rate: 5e-4
   weight_decay: 1e-4
 
+  # 早期融合不需要特征重建

@@ -1,0 +1,2 @@
+name,experiment,overrides,device,batch_size,image_size,total_params_m,trainable_params_m,flops_g,macs_g,operations_backend,peak_cuda_memory_mb,warmup_iters,latency_iters,avg_forward_ms
+jag26_prof_s1s2_inputconcat_corrected,resnet50_early_fusion_s1s2water,data.add_dem=false data.add_slope=false model.fusion.fusion_type=add,cuda,1,256,95.694,95.694,81.605,40.802,thop,510.889,5,20,5.656

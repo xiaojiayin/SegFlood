@@ -9,54 +9,41 @@
 #SBATCH --gres=gpu:1
 #SBATCH --time=04:00:00
 
+PROJECT_ROOT="${PROJECT_ROOT:-$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null || pwd)}"
 set -euo pipefail
 
-echo "Job: ${SLURM_JOB_ID:-N/A}"
-echo "Start: $(date)"
+echo "🔧 设置环境..."
+export HF_ENDPOINT="https://hf-mirror.com"
+export HF_TOKEN="${HF_TOKEN:-}"  # set your Hugging Face token in the environment if gated weights are needed
+export HF_HUB_CACHE="${PROJECT_ROOT}/checkpoints/.cache"
+export TORCH_HOME="${PROJECT_ROOT}/checkpoints"
+export HUGGINGFACE_HUB_CACHE="$HF_HUB_CACHE"
 
-###############################################################################
-# Runtime configuration (override via env vars if needed)
-# - PROJECT_ROOT: repo root (default: inferred from this script location)
-# - CONDA_ENV: conda env name to activate (optional; otherwise activate before sbatch)
-# - HF_ENDPOINT / HF_TOKEN: Hugging Face settings (optional)
-# - HF_HUB_CACHE / TORCH_HOME: caches (optional; defaults under $PROJECT_ROOT/checkpoints)
-###############################################################################
+echo "作业ID: ${SLURM_JOB_ID:-N/A}"
+echo "开始时间: $(date)"
 
-# Repo root (infer from this script path)
-PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-export PROJECT_ROOT
-cd "${PROJECT_ROOT}"
+source "${CONDA_SH:-${HOME}/miniconda3/etc/profile.d/conda.sh}"
+conda activate segflood
+echo "Python: $(python --version)"
 
-LOG_ROOT="${PROJECT_ROOT}/logs"
-mkdir -p "${LOG_ROOT}" || true
+cd ${PROJECT_ROOT}
 
-: "${HF_ENDPOINT:=}"
-: "${HF_TOKEN:=}"
-: "${HF_HUB_CACHE:=${PROJECT_ROOT}/checkpoints/.cache}"
-: "${TORCH_HOME:=${PROJECT_ROOT}/checkpoints}"
-export HF_ENDPOINT HF_TOKEN HF_HUB_CACHE TORCH_HOME
-export HUGGINGFACE_HUB_CACHE="${HF_HUB_CACHE}"
-mkdir -p "${HF_HUB_CACHE}" "${TORCH_HOME}" || true
+# 用法：
+#   bash scripts/infer/infer_kurosiwo.sh \
+#     ${PROJECT_ROOT}/logs/.../checkpoints/water_iou_0.6720.ckpt \
+#     /WORK/DATA/KuroSiwoGRD \
+#     scripts/infer/output/kurosiwo \
+#     all \
+#     false
 
-# Optional conda activation
-if command -v conda >/dev/null 2>&1; then
-  # shellcheck disable=SC1090
-  source "$(conda info --base)/etc/profile.d/conda.sh" || true
-  if [[ -n "${CONDA_ENV:-}" ]]; then
-    conda activate "${CONDA_ENV}" || true
-  fi
-fi
-
-echo "Python: $(python --version 2>&1)"
-
-CKPT_PATH="${1:-}"
-DATA_ROOT="${2:-}"
+CKPT_PATH="${1:-${PROJECT_ROOT}/logs/sam2_kurosiwo_dem-false_demscale-zscore_scale-db_ratio-true_cleardb-false_2025-11-25_14-53-29/checkpoints/water_iou_0.6604.ckpt}"
+DATA_ROOT="${2:-data/KuroSiwoGRD}"
 OUT_DIR="${3:-scripts/infer/output/kurosiwo}"
 EVENTS="${4:-all}"
 USE_DEM="${5:-false}"
 
 if [[ -z "${CKPT_PATH}" || -z "${DATA_ROOT}" ]]; then
-  echo "Usage: sbatch $0 <ckpt_path> <data_root> [out_dir] [events] [use_dem]" >&2
+  echo "用法: bash scripts/infer/infer_kurosiwo.sh <ckpt_path> <data_root> [out_dir] [events] [use_dem]"
   exit 1
 fi
 
@@ -67,7 +54,7 @@ export PYTHONPATH=.
 EXTRA_ARGS=()
 if [[ "${USE_DEM}" == "true" ]]; then
   EXTRA_ARGS+=(--use_dem)
-  # DEM scaling must match training
+  # 推理端 DEM 归一化 2 选1：与训练保持一致
   EXTRA_ARGS+=(--dem_scale_mode zscore)
 fi
 
@@ -84,7 +71,7 @@ python scripts/infer/infer_kurosiwo.py \
   --use_ratio \
   "${EXTRA_ARGS[@]}"
 
-echo "Done. Output: ${OUT_DIR}"
+echo "✅ 完成：KuroSiwo 事件级推理与拼接输出目录: ${OUT_DIR}"
 
 
 

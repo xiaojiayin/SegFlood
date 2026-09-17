@@ -1,8 +1,20 @@
-﻿# @package _global_
+# @package _global_
 
+# EfficientNet-B4 (光学) + MobileNetV2 (SAR) 双流模型 - S1S2-Water 数据集实验
+# 结构参考: efficientnetb4_mobilenetv2_cauflood.yaml 和 resnet50_dual_s1s2water.yaml
 
-# Experiment overrides (Hydra).
-
+# 新增: fusion_type 可参数化 (concat | add | xattn | gated | se | cbam ...)，默认 concat
+# 用法示例:
+#   1) 使用交叉注意力:  ++fusion_type=xattn  (脚本: 第4参数 或 直接 python src/train.py ... ++fusion_type=xattn)
+#   2) 使用简单相加:    ++fusion_type=add
+#   3) 使用通道注意力:  ++fusion_type=se   (需在 FeatureFusion 中已实现)
+#   4) 保持默认拼接:    (不传, 采用 concat)
+# 说明:
+#   - concat: 保留全部模态特征, 维度增大 -> 后续 1x1/卷积融合
+#   - add:    要求或假设通道对齐, 信息聚合但可能稀释差异
+#   - xattn:  (若实现) 双向/单向交叉注意力, 强化互补; 适合模态差异大的任务
+#   - se/cbam/gated: 基于注意力或门控权重重标定通道/空间
+#   - 若传入未实现的值, 运行期将抛出异常 (由 FeatureFusion 验证)
 
 defaults:
   - override /data: s1s2_water
@@ -11,12 +23,14 @@ defaults:
   - override /logger: tensorboard
   - override /trainer: gpu
 
+# 实验标识
 tags: ["dual_modal", "efficientnet_b4", "mobilenetv3", "s1s2water"]
 seed: 42
 experiment_name: "efficientnetb4_mobilenetv3_s1s2water"
+## 融合策略默认值（可通过命令行覆盖: model.fusion.fusion_type=xattn 等）
 
 data:
-  modal_type: "dual"
+  modal_type: "dual"   # 默认双模态，可被脚本 override
   batch_size: 128
   num_workers: 8
 
@@ -36,19 +50,23 @@ model:
     optical_channels: ${data.optical_channels}
     sar_channels: ${data.sar_channels}
     sar_pretrained: false
-    drop_path_rate: 0.0
+    drop_path_rate: 0.0                      # 大数据集+轻量模型：关闭随机深度
 
+  # 解码器配置（大数据集：适度正则化）
   decoder:
-    dropout: 0.1
-    up_mode: "bilinear"
+    dropout: 0.1                             # 大数据集：适度dropout
+    up_mode: "bilinear"                      # 标准双线性插值
 
+  # 跨模态注意力融合配置（双流实验标配）
   fusion:
     _target_: src.models.fusion.FeatureFusion
-    fusion_type: "xattn"
+    fusion_type: "xattn"                    # 跨模态注意力融合；可改为 concat|add|gated|se|cbam|xattn
+    # 在末两层做交互（-1,-2），对齐正则仍仅在最深层
     xattn_apply_levels: [-1, -2]
-    xattn_reduction: 8
-    xattn_gamma_init: 0.0
-
+    xattn_reduction: 8                      # 注意力瓶颈缩减比 (越大越省算力)
+    xattn_gamma_init: 0.0                   # 残差缩放初值 (0 表示从纯注意力输出开始)
+    
+    # 对齐偏置
     xattn_align_bias: true
     xattn_align_bias_scale: 1.0
 
@@ -71,10 +89,12 @@ model:
   learning_rate: 5e-4
   weight_decay: 1e-4
 
+  # 对齐正则（SigLIP PatchNCE）：仅最深层，K=256，τ=0.08
   alignment_enabled: true
   alignment_target_weight: 0.05
   alignment_layers: [-1]
   alignment_temperature: 0.08
   alignment_num_samples: 256
   alignment_patch_radius: 1
+  # EMA 限幅比例（防止对齐项主导）
   align_cap_ratio: 0.3

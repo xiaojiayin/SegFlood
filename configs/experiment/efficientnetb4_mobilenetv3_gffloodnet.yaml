@@ -1,8 +1,7 @@
-﻿# @package _global_
+# @package _global_
 
-
-# Experiment overrides (Hydra).
-
+# 混合模型实验：光学EfficientNet-B4 + SAR MobileNetV3
+# 不同模态使用不同架构
 
 defaults:
   - override /data: gf_floodnet
@@ -11,77 +10,126 @@ defaults:
   - override /logger: tensorboard
   - override /trainer: gpu
 
+# 实验标识
 tags: ["dual_modal", "efficientnet_b4", "mobilenetv3", "gffloodnet"]
 seed: 42
 experiment_name: "efficientnetb4_mobilenetv3_gffloodnet"
 
+# 数据配置
 data:
   modal_type: "dual"
   batch_size: 128
   num_workers: 8
 
+# 训练配置
 trainer:
   max_epochs: 100
   check_val_every_n_epoch: 1
   precision: "bf16-mixed"
 
+# 日志配置
 logger:
   tensorboard:
     save_dir: "${paths.log_dir}/tensorboard"
     name: "${experiment_name}"
     version: null
 
+# 模型配置
 model:
   encoder:
     optical_channels: ${data.optical_channels}
     sar_channels: ${data.sar_channels}
     sar_pretrained: false
-    drop_path_rate: 0.0
-
+    drop_path_rate: 0.0                      # 小数据集+轻量模型：关闭随机深度
+  
+  # 跨模态注意力融合配置（双流实验标配）
   fusion:
     _target_: src.models.fusion.FeatureFusion
-    fusion_type: "xattn"
+    fusion_type: "xattn"                    # 跨模态注意力融合；可改为 concat|add|gated|se|cbam|xattn
+    # 在末两层做交互（-1,-2），对齐正则仍仅在最深层
     xattn_apply_levels: [-1, -2]
-    xattn_reduction: 8
-    xattn_gamma_init: 0.0
-
+    xattn_reduction: 8                      # 注意力瓶颈缩减比 (越大越省算力)
+    xattn_gamma_init: 0.0                   # 残差缩放初值 (0 表示从纯注意力输出开始)
+    
+    # 对齐偏置
     xattn_align_bias: true
     xattn_align_bias_scale: 1.0
 
+  # 解码器配置（小数据集：轻量正则化）
   decoder:
-    dropout: 0.0
-    up_mode: "bilinear"
+    dropout: 0.0                             # 小数据集：关闭解码器dropout
+    up_mode: "bilinear"                      # 标准双线性插值
 
   loss_fn:
     _target_: segmentation_models_pytorch.losses.FocalLoss
     mode: "multiclass"
     alpha: [0.15, 0.85]                  # 
-    gamma: 2.0
+    gamma: 2.0                           # 难样本加权
     reduction: "mean"
     _convert_: all
-
+  
+  # 辅助损失：Dice Loss（优化分割边界质量）
   aux_loss_fn:
     _target_: segmentation_models_pytorch.losses.DiceLoss
     mode: "multiclass"
     from_logits: true
-    smooth: 1e-6
+    smooth: 1e-6                         # 平滑项
     _convert_: all
-
+  
+  # 损失权重：70% Focal + 30% Dice
   aux_loss_weight: 0.3
+  
+  # 🎯 混合模型优化器配置
+  learning_rate: 5e-4                    # 🎯 混合模型：中等学习率
+  weight_decay: 1e-4                     # 🎯 统一权重衰减
 
-  learning_rate: 5e-4
-  weight_decay: 1e-4
-
+  # 对齐正则（SigLIP PatchNCE）：仅最深层，K=256，τ=0.08
   alignment_enabled: true
   alignment_target_weight: 0.05
   alignment_layers: [-1]
   alignment_temperature: 0.08
   alignment_num_samples: 256
   alignment_patch_radius: 1
+  # EMA 限幅比例（防止对齐项主导）
   align_cap_ratio: 0.3
 
+# === GF-FloodNet数据集特化的训练策略说明 ===
 #
+# 🎯 数据集特点：
+#   - 双模态数据：光学(RGBNIR) + SAR(VV)
+#   - 类别不平衡：洪水区域相对较少
+#   - 样本规模：高质量遥感图像
+#   - 🔧 数据划分：从训练样本按7:1划分为训练+验证
 #
+# 🔧 针对性优化策略：
+#   1. 混合架构：光学使用EfficientNet-B4，SAR使用MobileNetV2
+#   2. Focal Loss alpha权重[0.25, 0.75]，平衡洪水检测
+#   3. Focal Loss gamma=2.0，关注难样本
+#   4. 学习率5e-4，适合混合模型训练
+#   5. batch_size=64，平衡训练效率与显存使用
 #
+# 📊 预期效果：
+#   - 利用EfficientNet-B4的光学特征提取能力
+#   - 利用MobileNetV2的轻量级SAR处理能力
+#   - 提高整体分割精度
+#   - 平衡计算效率和模型性能
 
+# === 使用默认回调配置 ===
+# 回调配置在configs/callbacks/default.yaml中定义，patience=10
+# 包括：模型检查点、早停、模型摘要、GPU监控、学习率监控
 
+# === GF-FloodNet特定的验证策略 ===
+# 建议在训练过程中额外关注：
+# 1. 光学和SAR特征的融合效果
+# 2. 不同架构的协同学习能力
+# 3. 洪水检测的精确率和召回率
+# 4. 模型对多模态数据的适应性
+
+# === 实验记录建议 ===
+# 🎯 关键记录内容：
+#   - 最终IoU、精确率、召回率、F1-score
+#   - 光学和SAR特征的贡献度
+#   - 收敛轮数和最佳checkpoint
+#   - GPU内存使用峰值
+#   - 训练总时长
+#   - 混合架构的性能优势

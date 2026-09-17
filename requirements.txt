@@ -10,44 +10,19 @@ hydra-colorlog==1.2.0
 hydra-optuna-sweeper==1.2.0
 
 # --------- loggers --------- #
-# TensorBoard logger backend (required when configs/logger=tensorboard)
-tensorboard
 # wandb
 # neptune-client
 # mlflow
 # comet-ml
 # aim>=3.16.2  # no lower than 3.16.2, see https://github.com/aimhubio/aim/issues/2550
 
-# --------- geo / remote sensing --------- #
-# TorchGeo is optional in some datasets (we fall back to torch.utils.data.Dataset),
-# but recommended for a consistent API.
-torchgeo
-# GeoTIFF I/O (NOTE: on HPC, installing rasterio/gdal via conda-forge is often more reliable than pip)
-rasterio
-
-# --------- vision / augmentation / backbones --------- #
-timm
-kornia
-# Use headless OpenCV to avoid GUI/X11 deps on servers; replace with opencv-python if you need GUI.
-opencv-python-headless
-pillow
-
-# --------- data / utils --------- #
-numpy
-pandas
-openpyxl
-einops
-pyjson5
-compress-pickle
-tqdm
-# loss functions used by experiment configs (FocalLoss/DiceLoss, etc.)
-segmentation-models-pytorch
-# Required by Lightning DeviceStatsMonitor callback (CPU/GPU stats)
-psutil
-
 # --------- others --------- #
 rootutils       # standardizing the project root setup
 pre-commit      # hooks for applying linters on commit
-rich            # optional (not required by core training/infer)
+rich            # beautiful text formatting in terminal
 pytest          # tests
+torchgeo
+thop            # FLOPs/MACs profiling for the JAG revision
+# 分割损失库
+segmentation-models-pytorch
 # sh            # for running bash commands in some tests (linux/macos only)

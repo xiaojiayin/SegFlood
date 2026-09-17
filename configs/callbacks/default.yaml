@@ -1,5 +1,5 @@
-# Default callback set used by `configs/train.yaml` (`callbacks: default`).
-# This file composes the callback configs defined in separate YAMLs below.
+# configs/callbacks/default.yaml
+# 默认的回调函数配置
 
 defaults:
   - model_checkpoint
@@ -7,17 +7,37 @@ defaults:
   - model_summary
   - _self_
 
-# Minimal progress bar (does not require `rich`).
+# 使用简单进度条替代RichProgressBar
 progress_bar:
   _target_: lightning.pytorch.callbacks.TQDMProgressBar
   refresh_rate: 10
 
-# Tracks system/GPU stats during training; can be disabled if it adds overhead.
-device_stats_monitor:
-  _target_: lightning.pytorch.callbacks.DeviceStatsMonitor
-  cpu_stats: true
+model_checkpoint:
+  _target_: lightning.pytorch.callbacks.ModelCheckpoint
+  dirpath: "${hydra:runtime.output_dir}/checkpoints"  # 使用Hydra动态输出目录
+  filename: "water_iou_{val/water_iou:.4f}"           # 文件命名包含water_iou
+  monitor: "val/water_iou"                             # 改为监控water_iou
+  mode: "max"                                          # 越高越好
+  save_last: true                                     # 保存最后一个epoch的模型
+  auto_insert_metric_name: false                      # 不自动插入指标名
+  save_top_k: 1                                       # 只保存1个最佳模型
+  verbose: false
 
-# Logs LR values (useful for debugging schedulers and warmup).
+early_stopping:
+  _target_: lightning.pytorch.callbacks.EarlyStopping
+  monitor: "val/water_iou"                             # 改为监控water_iou
+  patience: 10                                        # 早停耐心值
+  mode: "max"
+  verbose: false
+
+model_summary:
+  _target_: lightning.pytorch.callbacks.ModelSummary
+  max_depth: 2
+
+# 2026-09-03：移除 DeviceStatsMonitor。它每 step 写几十个标量，使 logs/tensorboard 膨胀到 25 GB，
+# 读取事件文件极慢；不影响任何训练/评估指标。需要时可临时加 callbacks.device_stats_monitor 覆盖。
+
+# 学习率监控
 lr_monitor:
   _target_: lightning.pytorch.callbacks.LearningRateMonitor
   logging_interval: "epoch"

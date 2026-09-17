@@ -1,0 +1,96 @@
+# KuroSiwo洪水后图像分割 DataModule 配置文件
+# 全球SAR洪水制图数据集，仅使用洪水后的图像进行分割任务
+
+# --- Hydra 实例化目标 ---
+_target_: src.data.datamodules.kurosiwo.KuroSiwoDataModule
+
+# --- 基础数据集配置 ---
+root: "${paths.data_dir}/KuroSiwo"  # 指向下载的数据集文件夹
+batch_size: 128  # 基础批次大小，实验配置可覆盖
+num_workers: 8
+
+# --- KuroSiwo 通道配置 ---
+# 支持多种通道组合：vv, vh（简化为2通道）；若启用DEM，则在此基础上追加1个通道
+channels: ["vv", "vh"]
+optical_channels: 0    # SAR-only数据集
+sar_channels: 2        # VV+VH（若 dem=true，请在实验配置或命令行将其改为3）
+
+# --- 任务类型（固定为分割） ---
+# 仅使用洪水后图像进行分割任务
+
+# --- 数据标准化配置（dB域 + 全局z-score）---
+# 可选：normalize, min-max, custom, log
+scale_input: "db"  # dB: 10*log10(max(x,1e-7))；第3通道已停用
+data_mean: [-11.870900531759382, -19.075417829198912]
+data_std: [6.873472038814271, 7.244895909919173]
+
+# --- 输入裁剪配置 ---
+clamp_input: null  # 取消固定裁剪，避免不同域被统一顶格
+
+# --- 地理辅助数据配置（DEM） ---
+# dem: 是否启用 DEM 早期融合（追加到 SAR 通道后）；默认关闭
+# dem_scale_mode: DEM 归一化方式:
+#   - "zscore": 使用 dem_mean/dem_std 做标准化（推荐）
+#   - "none":   不做归一化，仅填补无效像素
+dem: false
+dem_scale_mode: "zscore"
+dem_mean: 93.4313
+dem_std: 1410.8382
+
+# --- 数据集划分配置 ---
+# # 使用KuroSiwo官方的激活ID进行划分
+# train_acts: [130, 470, 555, 118, 174, 324, 421, 554, 427, 518, 502,
+#              498, 497, 496, 492, 147, 267, 273, 275, 417, 567,
+#              1111011, 1111004, 1111009, 1111010, 1111006, 1111005]
+# val_acts: [559, 279, 520, 437, 1111003, 1111008]
+# test_acts: [321, 561, 445, 562, 411, 1111002, 277, 1111007, 205, 1111013]
+
+# 1. 最终测试集 (Final Test Set) - 8个事件
+# 保持了官方测试集的主体，总样本量依然巨大且多样。
+test_acts: [205, 411, 445, 561, 562, 1111002, 1111007, 1111013]
+
+# 2. 调整后的验证集 (Balanced Validation Set) - 6个事件
+# 去除极小样本与异常分布（1111003 属于簇6、训练缺失；559 样本极少且不稳定）
+val_acts: [277, 279, 321, 437, 520, 1111008]
+
+# 3. 最终训练集 (Final Training Set) - 28个事件
+# 使用了所有剩余的、来自“训练pickle”的事件。
+train_acts: [118, 130, 147, 174, 267, 273, 275, 417, 421, 427, 470, 492, 
+             496, 497, 498, 502, 514, 518, 554, 555, 567, 1111004, 1111005, 
+             1111006, 1111009, 1111010, 1111011]
+# --- 数据增强配置 ---
+# 几何变换通过data_keys同步，标准化在DataModule中处理
+train_transforms:
+  _target_: kornia.augmentation.AugmentationSequential
+  data_keys: ["image", "mask"]
+  same_on_batch: false
+  _args_:
+
+    - _target_: kornia.augmentation.RandomHorizontalFlip
+      p: 0.5
+
+    - _target_: kornia.augmentation.RandomVerticalFlip
+      p: 0.5
+
+    - _target_: kornia.augmentation.RandomRotation
+      p: 0.2
+      degrees: 30.0
+      align_corners: false
+
+    - _target_: kornia.augmentation.RandomAffine
+      p: 0.2
+      degrees: 0.0  # 避免双重旋转
+      translate: [0.1, 0.1]
+      scale: [0.95, 1.05]
+      align_corners: false
+
+    - _target_: kornia.augmentation.RandomCrop
+      size: [224, 224]  # 保持224x224尺寸
+      p: 0.3
+
+# === 验证和测试数据增强配置 ===
+# 验证/测试阶段不应用随机增强，确保结果可复现
+val_transforms: null
+test_transforms: null
+
+

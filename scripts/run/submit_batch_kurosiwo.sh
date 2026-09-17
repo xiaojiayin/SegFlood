@@ -1,20 +1,20 @@
 #!/bin/bash
 
-# Batch-submit KuroSiwo experiments (based on sam2_kurosiwo)
+# 批量提交 KuroSiwo 的核心 5 个实验（基于 sam2_kurosiwo）
 #
-# Usage:
+# 用法：
 #   bash scripts/run/submit_batch_kurosiwo.sh
 #
-# Notes:
-#   - Calls scripts/run/train_kurosiwo.sh
-#   - EXP is fixed to sam2_kurosiwo
-#   - Submits these variants:
-#       1) linear domain + z-score (SAR only)
-#       2) dB domain + z-score + vh/vv
-#       3) dB domain + z-score (SAR only)
-#       4) dB domain + DEM(z-score)
-#       5) dB domain + DEM(no normalization)
-#       6) pure dB (no z-score; SAR only)
+# 说明：
+#   - 内部调用 scripts/run/train_kurosiwo.sh
+#   - EXP 固定为 sam2_kurosiwo（SAM2-Base 实验）
+#   - 提交的 5 个配置：
+#       1) 线性域 Z-Score（纯 SAR）
+#       2) dB 域 + Z-Score + vh/vv
+#       3) dB 域 + Z-Score（纯 SAR）
+#       4) dB 域 + DEM(Z-Score)
+#       5) dB 域 + DEM(不归一化)
+#       6) 纯 dB（不做 Z-Score，纯 SAR）
 
 set -euo pipefail
 
@@ -48,25 +48,25 @@ submit_one() {
   echo -e "${cfg_name}\t${jid}" >> "${MANIFEST}"
 }
 
-# 1) linear domain + z-score (SAR only)
+# 1) 线性域 Z-Score（纯 SAR）
 submit_one "false" "zscore" "normalize" "false" "false"
 
-# 2) dB domain + z-score + vh/vv
+# 2) dB 域 + Z-Score + vh/vv
 submit_one "false" "zscore" "db" "true" "false"
 
-# 3) dB domain + z-score (SAR only)
+# 3) dB 域 + Z-Score（纯 SAR）
 submit_one "false" "zscore" "db" "false" "false"
 
-# 4) dB domain + DEM(z-score)
+# 4) dB 域 + DEM(Z-Score)
 submit_one "true" "zscore" "db" "false" "false"
 
-# 5) dB domain + DEM(no normalization)
+# 5) dB 域 + DEM(不归一化)
 submit_one "true" "none" "db" "false" "false"
 
-# 6) pure dB (no z-score; SAR only)
+# 6) 纯 dB（不做 Z-Score，纯 SAR）
 submit_one "false" "zscore" "db" "false" "true"
 
-echo "Manifest: ${MANIFEST}"
-echo "Done. Submitted 6 jobs."
+echo "清单文件: ${MANIFEST}"
+echo "完成：共提交 6 个作业。"
 
 
